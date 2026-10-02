@@ -1,0 +1,16 @@
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+data/
+.env
+.env.*
+!.env.example
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+
+# Dados reais da KOFBR (planilha completa e planilhas de treino do ML): não versionar
+planilhas modelo/

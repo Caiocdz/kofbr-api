@@ -1,0 +1,60 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+"Gargalo — Radar de Confiabilidade": a Flask/Python API plus a Next.js static frontend for importing SAP downtime spreadsheets (Coca-Cola FEMSA / KOFBR), grouping and classifying failure reports, human validation on a kanban board, and Pareto / Jack-Knife analytics. All user-facing text, identifiers in comments, and docs are in Portuguese (pt-BR); keep files UTF-8.
+
+## Commands
+
+```bash
+# Backend (Python 3.10+)
+python -m pip install -r requirements.txt
+python run.py                 # Waitress on 127.0.0.1:5000, serves frontend/out + API, opens browser (KOFBR_NO_BROWSER=1 to skip)
+python app.py                 # Flask dev server (FLASK_DEBUG=1 for debug)
+iniciar.bat                   # Windows: creates .venv, installs deps, runs run.py
+
+# Tests (pytest is not in requirements.txt — install it separately)
+python -m pytest tests
+python -m pytest tests/test_workflow.py::test_confidence_memory_and_safe_batch
+
+# Quick syntax check (from .github/copilot-instructions.md)
+python -m py_compile app.py db.py parsing.py dedup.py routes/*.py workflow/*.py
+
+# Frontend (only needed when changing the UI)
+cd frontend && npm ci
+npm run dev                   # :3000; radar.ts apiUrl() auto-targets :5000 when on port 3000 (or set NEXT_PUBLIC_API_URL)
+npm run build                 # static export to frontend/out (served by Flask; run.py refuses to start without it)
+npm run lint
+```
+
+The frontend uses Next.js 16 / React 19 / Tailwind 4 — see `frontend/AGENTS.md`: APIs may differ from training data; consult `frontend/node_modules/next/dist/docs/` before writing Next code.
+
+## Architecture
+
+There are two coexisting backends registered in `app.py`:
+
+1. **Current flow — `workflow/` package, routes under `/api/workspace/*`.** This is what the frontend uses.
+   - `store.py`: persistence. SQLite by default at `data/radar.sqlite3` (`KOFBR_DATA_DIR` overrides the dir); MySQL when `KOFBR_WORKFLOW_DB=mysql` (via `db.get_conn`). Only two tables: `radar_analyses` (each analysis is a whole JSON **document** + original file blob, deduped by `content_hash`) and `radar_settings` (catalog, correction memory, etc. as JSON).
+   - Optimistic concurrency: every doc has a `revision`. `POST /analyses/<id>/actions` takes `{action, revision, ...}`, returns 409 on mismatch; `store.save` updates `WHERE revision = expected`.
+   - `service.mutate(doc, body)` is the single dispatcher for all board actions (`validate_card`, `validate_column`, `validate_all`, `validate_confident`, `set_class`, `move`, `hold`, `split_card`, `add_column`, ...). It works on a deepcopy and appends history. `service.board(doc)` builds the response shape the UI renders. `service.compute/compare/select_records` do Pareto/Jack-Knife/compare math.
+   - `importer.py`: parses XLSX/XLSM/CSV (header detected in first 30 rows; reuses `COLUMN_ALIASES` from top-level `parsing.py`), validates, and groups records into columns/cards by context (unit, line, equipment, stop type, subkey, system) + normalized description similarity.
+   - `classify.py`: rule/term catalog that maps each report text to a standardized failure class ("FALHA DE ROLAMENTO", "SEM MODO DE FALHA IDENTIFICADO", ...). The component cited determines the class. Analyst corrections go into a "memory" keyed by `memory_key(text)`.
+   - `learning.py`: local scikit-learn model (TF-IDF word + char n-grams + machine, logistic regression) trained from validated cards; saved to `data/aprendizado.joblib`; retrained in a background thread ~20 s after learning actions (`LEARNING_ACTIONS` in `routes.py`). Tests monkeypatch `retrain_in_background` and call training explicitly.
+   - `apontamentos_ml.py` (routes `/api/workspace/ml/*`, UI `components/ml-fill.tsx`, sidebar "Gerar Planilha de Apontamentos"): separate model that fills the `Classificação Manual Analista` column of an uploaded SAP sheet. Trains from the spreadsheets in `planilhas modelo/plhanilha treinamento de ml` (override with `KOFBR_ML_TRAIN_DIR`) plus analyst reviews (`radar_ml_examples` table, weight 3, always in train). `prepare()` cleans data (missing, junk, no-info labels, near-duplicate labels merged, duplicates → weights, conflicts → majority) so each relato appears once — the 80/20 split therefore has no train/test leakage; don't reintroduce row-level duplicates. Target is the standardized catalog class (free-text label mapped via `classify.classify`, recurring unmapped labels become own classes); a nearest-neighbour `DetailIndex` suggests the analyst's free-text detail. Outputs + per-relato review state in `data/ml_saidas/<id>.xlsx|.json`; reviews are applied to the xlsx lazily on download (`dirty` flag) and trigger `retrain_soon()`.
+   - `exports.py` / `xlsx_export.py`: PNG/PDF and the SAP-layout summarized Excel.
+   - Once a card is validated its class is frozen (`_freeze_classes`); catalog/model changes only affect unvalidated cards.
+   - Counting: by default Q counts **real failures** (`service.event_map`: same O.S. number on same machine = 1 event; else adjacent hourly SAP slices with same text) — `count=events` vs `count=lines` in API args.
+
+   - **Fluxo único** (`pipeline.py`, routes `/api/workspace/pipeline/*`, UI `components/pipeline.tsx`, sidebar "Nova análise", hash `#fluxo/<id>?passo=N`): upload → background job (tolerant `importer.parse_file(strict=False, keep_original=False)`, ML prediction, prediction columns written into the uploaded workbook) → per-relato validation (Correta/Errada) → `summarize()` groups by failure into `radar_failure_summary` → existing Dashboard. Documents have `mode: 'ml'`, no cards; per-relato state lives in table `radar_ml_items`, not in the document (the full SAP sheet is ~94k rows / 51k unique relatos — never rewrite the document on validation). `service.ready/summary/reduced_records` branch on `mode == 'ml'`; `store.get/all_documents` cache ML docs by revision.
+2. **Legacy flow — `routes/*.py`, `db.py`, `dedup.py`, `ddl_kofbr_v2.sql`, `templates/`.** MySQL-only (PyMySQL), kept for compatibility (`/api/upload`, `/api/clusters`, `/api/records`, `/api/dashboard/*`). App queries use `?`; `db.py` translates to `%s`. `migrate_history.py` copies legacy MySQL analyses into the new store.
+
+Frontend (`frontend/src`): single-page app in `app/page.tsx`; `lib/radar.ts` holds types and the `/api/workspace` fetch wrapper; large components in `components/` (`kanban.tsx` board, `analysis.tsx` dashboard/compare, `charts.tsx`, `manual.tsx` manual chart builder whose edits live in localStorage only).
+
+## Business rules to preserve
+
+- Grouping/similarity only **proposes**; human validation is mandatory. Never group records missing line/equipment, and never mix contexts (unit, line, equipment, stop type, subkey, system).
+- Server re-checks every UI gate: "Confirmar todos" requires the confirmation text `CONFIRMAR`; finishing requires all cards validated and the review bell (held cards) empty.
+- Imports are all-or-nothing (invalid files write nothing); identical content is detected even if renamed/reordered.
+- UI must wait for the HTTP response (`response.ok`) and reload from the API rather than optimistically removing cards.
+- Write routes must commit, roll back on exception, and close the connection (`store.connection()` does this).
+- When changing grouping/classification rules, add test cases covering: same failure same context, same description different context, and similar phrases with different causes. The project-spec examples are in `tests/test_workflow.py::test_failure_classification_matches_project_document`.

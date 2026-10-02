@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motor de Confiabilidade · KOF BR</title>
+<meta name="description" content="Sistema de normalização inteligente de apontamentos de falha">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+<style>
+:root {
+  --accent:#C8102E; --accent-h:#a30d25; --accent-sub:rgba(200,16,46,.08);
+  --sb:#0f1117; --sb-h:rgba(255,255,255,.04); --sb-a:rgba(255,255,255,.08);
+  --sb-t:#71717a; --sb-tb:#e4e4e7; --sb-bd:rgba(255,255,255,.06);
+  --bg:#f4f5f7; --sf:#fff; --bd:#e5e7eb; --bdh:#d1d5db;
+  --tx:#111827; --tx2:#6b7280; --txd:#9ca3af;
+  --sw:260px; --th:64px; --r:10px; --rs:6px; --rl:14px;
+  --sh:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
+  --f:'Inter',-apple-system,sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--tx);font-family:var(--f);min-height:100vh;-webkit-font-smoothing:antialiased}
+
+/* SIDEBAR */
+.sb{position:fixed;top:0;bottom:0;left:0;width:var(--sw);background:var(--sb);z-index:1000;display:flex;flex-direction:column;border-right:1px solid var(--sb-bd)}
+.sb-brand{height:var(--th);display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--sb-bd);flex-shrink:0}
+.sb-brand img{width:48px;height:58px;object-fit:contain}
+.sb-brand-t{font-weight:700;font-size:15px;color:var(--sb-tb);letter-spacing:-.02em}
+.sb-brand-t span{display:block;color:var(--sb-t);font-weight:500;font-size:10px;margin:4px 0 0}
+.sb-nav{flex:1;padding:16px 12px;overflow-y:auto}
+.nav-g{margin-bottom:24px}
+.nav-l{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#3f3f46;padding:0 12px;margin-bottom:8px}
+.nav-i{display:flex;align-items:center;gap:10px;padding:9px 12px;color:var(--sb-t);font-size:13.5px;font-weight:500;border-radius:var(--rs);cursor:pointer;transition:.2s;margin-bottom:2px;user-select:none}
+.nav-i:hover{color:var(--sb-tb);background:var(--sb-h)}
+.nav-i.active{background:var(--accent);color:#fff;box-shadow:0 2px 8px rgba(200,16,46,.3)}
+.nav-i svg{width:18px;height:18px;flex-shrink:0}
+.nav-badge{margin-left:auto;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:rgba(255,255,255,.1);color:var(--sb-t)}
+.nav-i.active .nav-badge{background:rgba(255,255,255,.2);color:#fff}
+.sb-ft{padding:16px;border-top:1px solid var(--sb-bd);display:flex;align-items:center;gap:10px;flex-shrink:0}
+.sb-ft img{width:32px;height:32px;border-radius:50%}
+.sb-ft-n{font-size:13px;font-weight:600;color:var(--sb-tb)}
+.sb-ft-r{font-size:11px;color:var(--sb-t)}
+
+/* TOPBAR */
+.tb{position:fixed;top:0;left:var(--sw);right:0;height:var(--th);background:rgba(255,255,255,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--bd);z-index:900;display:flex;align-items:center;justify-content:space-between;padding:0 28px}
+.tb-s{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--bd);border-radius:100px;padding:7px 16px;width:320px;transition:.2s}
+.tb-s:focus-within{border-color:var(--accent);background:#fff;box-shadow:0 0 0 3px var(--accent-sub)}
+.tb-s svg{width:16px;height:16px;color:var(--txd);flex-shrink:0}
+.tb-s input{border:none;background:0 0;outline:none;font-size:13.5px;width:100%;color:var(--tx);font-family:var(--f)}
+.tb-acts{display:flex;align-items:center;gap:8px}
+.tb-ic{width:36px;height:36px;border-radius:50%;border:1px solid var(--bd);background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--tx2);transition:.2s;position:relative}
+.tb-ic:hover{border-color:var(--bdh);color:var(--tx)}
+.tb-dot{position:absolute;top:6px;right:6px;width:7px;height:7px;background:var(--accent);border-radius:50%;border:2px solid #fff}
+
+/* MAIN */
+.mn{margin-left:var(--sw);margin-top:var(--th);padding:28px;min-height:calc(100vh - var(--th))}
+.vs{display:none}.vs.active{display:block;animation:vIn .3s ease}
+@keyframes vIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+/* PAGE */
+.ph{margin-bottom:24px;display:flex;justify-content:space-between;align-items:flex-start}
+.pt{font-size:22px;font-weight:700;letter-spacing:-.02em}.pd{font-size:14px;color:var(--tx2);margin-top:4px}
+
+/* KPI */
+.kpi-r{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px}
+.kpi{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:20px;display:flex;justify-content:space-between;align-items:flex-start;box-shadow:var(--sh)}
+.kpi-lb{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--tx2);margin-bottom:8px}
+.kpi-v{font-size:26px;font-weight:700;color:var(--tx);line-height:1}
+.kpi-v small{font-size:14px;color:var(--txd);font-weight:600;margin-left:2px}
+.kpi-tr{font-size:12px;font-weight:600;margin-top:6px;color:#059669}
+.kpi-ic{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.kpi-ic svg{width:20px;height:20px}
+.kpi-ic.red{background:var(--accent-sub);color:var(--accent)}
+.kpi-ic.blue{background:rgba(59,130,246,.08);color:#3b82f6}
+.kpi-ic.green{background:rgba(16,185,129,.08);color:#10b981}
+.kpi-ic.amber{background:rgba(245,158,11,.08);color:#f59e0b}
+
+/* SECTION */
+.sh{font-size:16px;font-weight:700;color:var(--tx);margin-bottom:16px;display:flex;align-items:center;gap:8px}
+
+/* GRID */
+.dg{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.fc{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);overflow:hidden;cursor:pointer;transition:.2s;box-shadow:var(--sh)}
+.fc:hover{transform:translateY(-2px);box-shadow:0 10px 15px -3px rgba(0,0,0,.06);border-color:var(--bdh)}
+.fc-t{padding:16px;display:flex;align-items:center;gap:12px}
+.fc-ic{width:38px;height:38px;border-radius:10px;background:var(--accent-sub);display:flex;align-items:center;justify-content:center;color:var(--accent)}
+.fc-ic svg{width:18px;height:18px}
+.fc-ti{font-weight:600;font-size:14px;color:var(--tx)}
+.fc-su{font-size:12px;color:var(--txd);margin-top:2px}
+.fc-b{padding:12px 16px;border-top:1px solid var(--bd);background:#fafbfc;display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--tx2)}
+.fc-st{font-weight:700;color:var(--tx);background:var(--bg);padding:3px 10px;border-radius:100px;font-size:13px}
+
+/* CHARTS */
+.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:28px}
+.chart-card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:20px;box-shadow:var(--sh)}
+.chart-card.full{grid-column:1/-1}
+.chart-title{font-size:14px;font-weight:700;color:var(--tx);margin-bottom:4px}
+.chart-sub{font-size:12px;color:var(--txd);margin-bottom:16px}
+.chart-wrap{position:relative;height:320px}
+.chart-filters{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.chart-filters select{padding:7px 12px;border:1px solid var(--bd);border-radius:var(--rs);font-family:var(--f);font-size:13px;outline:none;background:#fff;cursor:pointer;color:var(--tx)}
+.chart-filters select:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-sub)}
+
+/* TABLE */
+.tbl-wrap{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden;margin-bottom:28px}
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{background:#f9fafb;font-weight:600;text-align:left;padding:10px 16px;border-bottom:1px solid var(--bd);color:var(--tx2);text-transform:uppercase;letter-spacing:.04em;font-size:11px}
+.tbl td{padding:10px 16px;border-bottom:1px solid #f3f4f6;color:var(--tx)}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:#f9fafb}
+
+/* BTN */
+.btn{font-family:var(--f);font-size:13px;font-weight:600;border:none;border-radius:var(--rs);padding:9px 18px;cursor:pointer;transition:.2s;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-p{background:var(--accent);color:#fff;box-shadow:0 1px 3px rgba(200,16,46,.2)}
+.btn-p:hover:not(:disabled){background:var(--accent-h)}
+.btn-g{background:0 0;color:var(--tx2);border:1px solid var(--bd)}
+.btn-g:hover{background:var(--bg);color:var(--tx);border-color:var(--bdh)}
+
+/* IMPORT */
+.iw{max-width:800px}
+.cp{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:24px;box-shadow:var(--sh);margin-bottom:20px}
+.sth{display:flex;align-items:center;gap:14px;margin-bottom:12px}
+.stb{width:26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.stt{font-size:15px;font-weight:700}
+.std{font-size:13.5px;color:var(--tx2);margin-bottom:16px;line-height:1.6}
+#dropzone{border:2px dashed #d1d5db;border-radius:var(--r);padding:40px 24px;text-align:center;cursor:pointer;transition:.2s;background:#fafbfc}
+#dropzone:hover{border-color:var(--accent);background:var(--accent-sub)}
+#dropzone svg{width:28px;height:28px;color:var(--txd);margin-bottom:10px}
+.dz-t{font-weight:600;font-size:14px;margin-bottom:4px}.dz-s{font-size:12px;color:var(--txd)}
+#fileName{margin-top:14px;font-size:12px;font-weight:600;padding:5px 12px;background:#e5e7eb;border-radius:6px;display:inline-block}
+.ci{border:1px solid var(--bd);border-radius:var(--r);padding:14px 18px;margin-bottom:10px;background:var(--sf);display:flex;justify-content:space-between;align-items:center;transition:.2s}
+.ci:hover{border-color:var(--bdh);box-shadow:var(--sh)}
+.ci-t{font-weight:600;font-size:14px;margin-bottom:3px}
+
+/* MODAL */
+.mo{position:fixed;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(6px);z-index:2000;display:flex;align-items:center;justify-content:center;opacity:0;visibility:hidden;transition:.25s;padding:24px}
+.mo.open{opacity:1;visibility:visible}
+.mb{width:100%;max-width:960px;height:82vh;background:var(--sf);border-radius:var(--rl);box-shadow:0 20px 25px -5px rgba(0,0,0,.08);display:flex;flex-direction:column;overflow:hidden;transform:scale(.97);transition:.3s}
+.mo.open .mb{transform:scale(1)}
+.mh{padding:18px 28px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+.mh-t{font-size:16px;font-weight:700;display:flex;align-items:center;gap:10px}
+.mh-d{color:var(--accent)}
+.mh-c{width:32px;height:32px;border:none;background:var(--bg);color:var(--tx2);border-radius:var(--rs);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.2s}
+.mh-c:hover{background:#e5e7eb;color:var(--tx)}
+.mf{padding:14px 28px;background:#fafbfc;border-bottom:1px solid var(--bd);display:flex;gap:10px;flex-shrink:0;flex-wrap:wrap}
+.mf select{flex:1;min-width:140px;padding:8px 12px;border:1px solid var(--bd);border-radius:var(--rs);font-family:var(--f);font-size:13px;outline:none;background:#fff;cursor:pointer}
+.mf select:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-sub)}
+.mbd{flex:1;overflow-y:auto;padding:20px 28px}
+.hc{border:1px solid var(--bd);border-radius:var(--r);padding:16px 18px;margin-bottom:12px;background:var(--sf);transition:.2s}
+.hc:hover{border-color:var(--bdh);box-shadow:var(--sh)}
+.hr{display:flex;justify-content:space-between;align-items:center;gap:16px}
+.hi{flex:1}.hn{font-weight:600;font-size:14px;margin-bottom:8px}
+.ht{display:flex;gap:6px;flex-wrap:wrap}
+.htg{font-size:11px;padding:3px 8px;border-radius:100px;font-weight:600;white-space:nowrap}
+.htg-r{background:var(--accent-sub);color:var(--accent)}.htg-g{background:#f3f4f6;color:var(--tx2)}
+.hm{font-size:12px;color:var(--txd);margin-top:8px}
+.ha{display:flex;flex-direction:column;gap:6px;flex-shrink:0}
+.hd{display:none;padding:14px 0 0;margin-top:14px;border-top:1px dashed var(--bd)}
+.dr{background:#fafbfc;padding:10px;border-radius:var(--rs);border:1px solid var(--bd);margin-bottom:6px}
+.dr-o{font-weight:600;font-size:13px;margin-bottom:3px}.dr-m{font-size:12px;color:var(--txd);display:flex;gap:12px;flex-wrap:wrap}
+
+.lm,.em{padding:48px 20px;text-align:center;color:var(--txd);font-size:14px;font-weight:500}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sp{display:inline-block;width:14px;height:14px;border:2px solid #d1d5db;border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:6px}
+
+/* IMPORT BUTTON IN SIDEBAR */
+.btn-import-sb{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px 7px;cursor:pointer;color:var(--sb-t);transition:.2s;display:flex;align-items:center;justify-content:center}
+.btn-import-sb:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+/* DAY CHIP */
+.day-chip{display:inline-flex;align-items:center;gap:6px;background:var(--accent-sub);border:1px solid rgba(200,16,46,.2);color:var(--accent);font-size:13px;font-weight:600;padding:6px 14px;border-radius:100px;cursor:pointer;transition:.2s;white-space:nowrap}
+.day-chip:hover{background:rgba(200,16,46,.15);border-color:var(--accent)}
+.day-chip svg{opacity:.6;transition:.2s}
+.day-chip:hover svg{opacity:1}
+
+/* RASTREABILIDADE DOS INDICADORES */
+.data-source{display:flex;align-items:center;gap:9px;min-height:38px;padding:8px 12px;margin:0 0 18px;background:#f8fafc;border:1px solid var(--bd);border-radius:var(--rs);font-size:12px;color:var(--tx2)}
+.data-source-dot{width:8px;height:8px;border-radius:50%;background:#10b981;box-shadow:0 0 0 4px rgba(16,185,129,.12);flex:0 0 auto}.data-source b{color:var(--tx);font-weight:700}.data-source .data-source-count{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--txd)}
+.data-source[data-state="loading"] .data-source-dot{background:#f59e0b;box-shadow:0 0 0 4px rgba(245,158,11,.12)}
+.data-source[data-state="error"] .data-source-dot{background:var(--accent);box-shadow:0 0 0 4px var(--accent-sub)}
+
+.hidden{display:none!important}
+
+@media(max-width:1200px){.kpi-r,.chart-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:768px){.sb{display:none}.tb{left:0}.mn{margin-left:0}.kpi-r{grid-template-columns:1fr}.chart-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sb">
+  <div class="sb-brand">
+    <img src="/static/img/3e396475-970e-48ba-ae49-8dc08f5452e0.png" alt="Troféu KOF BR">
+    <div class="sb-brand-t">KOFBR<span>Radar de confiabilidade</span></div>
+  </div>
+  <nav class="sb-nav">
+    <div class="nav-g">
+      <div class="nav-l" style="display:flex;align-items:center;gap:10px">
+        <button class="btn-import-sb" id="btnOpenImport" title="Registrar Falhas (SAP)" style="padding:8px 12px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        </button>
+        Principal
+      </div>
+      <div class="nav-i active" data-view="viewDrive" id="navDrive">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        Meu Drive Diário
+      </div>
+      <div class="nav-i" data-view="viewDash" id="navDash">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+        Dashboard
+      </div>
+      <div class="nav-i" data-view="viewPareto" id="navPareto">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
+        Pareto
+      </div>
+      <div class="nav-i" data-view="viewJK" id="navJK">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Jack-Knife
+      </div>
+    </div>
+  </nav>
+  <div class="sb-ft">
+    <img src="https://ui-avatars.com/api/?name=Caio+V&background=18181b&color=fafafa&rounded=true&size=64" alt="User">
+    <div><div class="sb-ft-n">Caio Vinícius</div><div class="sb-ft-r">Confiabilidade</div></div>
+  </div>
+</aside>
+
+<!-- TOPBAR -->
+<header class="tb">
+  <div class="tb-s">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input type="text" placeholder="Buscar equipamento, linha, modo de falha...">
+  </div>
+  <div class="tb-acts">
+    <div class="tb-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><div class="tb-dot"></div></div>
+  </div>
+</header>
+
+<!-- MAIN -->
+<div class="mn">
+
+<!-- ═══ VIEW: DASHBOARD ═══ -->
+<div id="viewDash" class="vs">
+  <div class="ph">
+    <div><h1 class="pt">Dashboard Operacional</h1><p class="pd" id="dashSubtitle">Visão geral de confiabilidade puxada diretamente do banco de dados.</p></div>
+  </div>
+  <div class="chart-filters">
+    <select id="dashDia" class="day-select" style="padding:7px 12px;border:1px solid var(--bd);border-radius:var(--rs);font-family:var(--f);font-size:13px;outline:none;background:#fff;cursor:pointer"><option value="">Todos os Dias</option></select>
+  </div>
+  <div class="data-source" id="dashSource" data-state="loading"><span class="data-source-dot"></span><span>Validando a base dos indicadores...</span><span class="data-source-count"></span></div>
+
+  <div class="kpi-r">
+    <div class="kpi"><div><div class="kpi-lb">Apontamentos Totais</div><div class="kpi-v" id="kTotal">—</div><div class="kpi-tr" id="kTotalSub">Carregando...</div></div><div class="kpi-ic red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div></div>
+    <div class="kpi"><div><div class="kpi-lb">Equipamentos Distintos</div><div class="kpi-v" id="kEquip">—</div><div class="kpi-tr" id="kEquipSub">—</div></div><div class="kpi-ic blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33"/></svg></div></div>
+    <div class="kpi"><div><div class="kpi-lb">Tempo Total de Parada</div><div class="kpi-v" id="kMinutos">—<small>min</small></div><div class="kpi-tr" id="kMinSub">—</div></div><div class="kpi-ic amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div></div>
+    <div class="kpi"><div><div class="kpi-lb">Clusters Confirmados</div><div class="kpi-v" id="kConf">—</div><div class="kpi-tr" id="kConfSub">—</div></div><div class="kpi-ic green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div></div>
+  </div>
+
+  <div class="chart-grid">
+    <div class="chart-card">
+      <div class="chart-title">Pareto de Falhas (Top 10)</div>
+      <div class="chart-sub">Tempo de parada por equipamento — dados completos do banco</div>
+      <div class="chart-wrap"><canvas id="dashPareto"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Jack-Knife (Crítico × Crônico)</div>
+      <div class="chart-sub">MTTR vs Frequência por equipamento — quadrantes de prioridade</div>
+      <div class="chart-wrap"><canvas id="dashJK"></canvas></div>
+    </div>
+  </div>
+
+  <div class="sh">Tabela de Análise (Crítico-Crônico)</div>
+  <div class="tbl-wrap">
+    <table class="tbl" id="tblResumo">
+      <thead><tr>
+        <th style="text-align:center;width:60px">Ranking</th>
+        <th>Equipamento / Modo de Falha</th>
+        <th style="text-align:right">T (min)</th>
+        <th style="text-align:right">Q</th>
+        <th style="text-align:right">MTTR</th>
+        <th style="text-align:right">T.T.A</th>
+        <th style="text-align:right">%</th>
+        <th style="text-align:right">80%</th>
+        <th style="text-align:center">Categoria</th>
+      </tr></thead>
+      <tbody id="tblResumoBody"><tr><td colspan="9" style="text-align:center;color:var(--txd)"><span class="sp"></span> Carregando...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══ VIEW: PARETO ═══ -->
+<div id="viewPareto" class="vs">
+  <div class="ph">
+    <div><h1 class="pt">Análise de Pareto</h1><p class="pd">Ranking dos equipamentos que mais geram parada — filtrado por linha e período.</p></div>
+  </div>
+  <div class="chart-filters">
+    <select id="paretoDia" class="day-select" style="padding:7px 12px;border:1px solid var(--bd);border-radius:var(--rs);font-family:var(--f);font-size:13px;outline:none;background:#fff;cursor:pointer"><option value="">Todos os Dias</option></select>
+    <select id="paretoLinha"><option value="">Todas as Linhas</option></select>
+  </div>
+  <div class="data-source" id="paretoSource" data-state="loading"><span class="data-source-dot"></span><span>Carregando cálculo da planilha...</span><span class="data-source-count"></span></div>
+  <div class="chart-card full" style="margin-bottom:28px">
+    <div class="chart-title">Tempo de Parada por Equipamento (min)</div>
+    <div class="chart-sub">Barras = tempo total · Linha = % acumulado</div>
+    <div class="chart-wrap" style="height:400px"><canvas id="chartPareto"></canvas></div>
+  </div>
+  <div class="sh">Tabela Detalhada</div>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>#</th><th>Linha</th><th>Equipamento</th><th>Falhas</th><th>Tempo (min)</th><th>% Total</th><th>% Acumulado</th></tr></thead>
+      <tbody id="paretoTbody"><tr><td colspan="7" style="text-align:center;color:var(--txd)">Selecione filtros ou carregue a página</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══ VIEW: JACK-KNIFE ═══ -->
+<div id="viewJK" class="vs">
+  <div class="ph">
+    <div><h1 class="pt">Jack-Knife (Crítico × Crônico)</h1><p class="pd">Dispersão MTTR vs Frequência — identifica equipamentos críticos e crônicos.</p></div>
+  </div>
+  <div class="chart-filters">
+    <select id="jkDia" class="day-select" style="padding:7px 12px;border:1px solid var(--bd);border-radius:var(--rs);font-family:var(--f);font-size:13px;outline:none;background:#fff;cursor:pointer"><option value="">Todos os Dias</option></select>
+    <select id="jkLinha"><option value="">Todas as Linhas</option></select>
+    <select id="jkQuadrante">
+      <option value="">Todos os Quadrantes</option>
+      <option value="CRITICO-CRONICO">Crítico-Crônico (Vermelho)</option>
+      <option value="CRITICO">Crítico (Amarelo)</option>
+      <option value="CRONICO">Crônico (Azul)</option>
+      <option value="CONFORTO">Conforto (Verde)</option>
+    </select>
+  </div>
+  <div class="data-source" id="jkSource" data-state="loading"><span class="data-source-dot"></span><span>Carregando cálculo da planilha...</span><span class="data-source-count"></span></div>
+  <div class="chart-card full" style="margin-bottom:28px">
+    <div class="chart-title">Gráfico de Dispersão Jack-Knife</div>
+    <div class="chart-sub">Eixo X = Frequência (n° falhas) · Eixo Y = MTTR (min) · Medianas definem os quadrantes</div>
+    <div class="chart-wrap" style="height:440px"><canvas id="chartJK"></canvas></div>
+  </div>
+  <div class="sh">Classificação por Quadrante</div>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Equipamento</th><th>Linha</th><th>Falhas (Q)</th><th>MTTR (min)</th><th>Tempo Total</th><th>Quadrante</th></tr></thead>
+      <tbody id="jkTbody"><tr><td colspan="6" style="text-align:center;color:var(--txd)">Carregando...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══ VIEW: DRIVE ═══ -->
+<div id="viewDrive" class="vs active">
+  <div class="ph"><div><h1 class="pt">Meu Drive Diário</h1><p class="pd">Histórico de padronizações agrupadas por dia de análise. Clique em um dia para analisar.</p></div></div>
+  <div class="dg" id="driveGrid"><div class="lm"><span class="sp"></span> Carregando...</div></div>
+</div>
+
+<!-- ═══ VIEW: IMPORT ═══ -->
+<div id="viewImport" class="vs">
+  <div class="ph"><div><h1 class="pt">Registrar Falhas</h1><p class="pd">Importe a planilha SAP e inicie a padronização inteligente.</p></div></div>
+  <div class="iw">
+    <div class="cp">
+      <div class="sth"><div class="stb">1</div><div class="stt">Importar Planilha do SAP</div></div>
+      <div class="std">O sistema lerá sua planilha para extrair e normalizar os apontamentos pendentes.</div>
+      <div id="dropzone">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <div class="dz-t">Arraste o arquivo ou clique para procurar</div>
+        <div class="dz-s">Suporta .xlsx e .xlsm</div>
+        <div id="fileNameWrapper" style="text-align:center;display:none"><span id="fileName"></span></div>
+      </div>
+      <input type="file" id="fileInput" accept=".xlsx,.xlsm" style="display:none">
+      <button class="btn btn-p" id="uploadBtn" style="width:100%;margin-top:16px" disabled>Enviar Planilha</button>
+      <div id="uploadResult" style="margin-top:12px;font-weight:600;color:#059669;text-align:center;display:none;font-size:13px">✓ Planilha carregada!</div>
+    </div>
+    <div class="cp hidden" id="dedupSection">
+      <div class="sth"><div class="stb">2</div><div class="stt">Análise de Similaridade</div></div>
+      <div class="std">A IA analisará <b>todos os apontamentos pendentes</b> e formará clusters.</div>
+      <button class="btn" id="dedupBtn" style="width:100%;background:var(--sb);color:#fff">Iniciar Processamento</button>
+    </div>
+    <div class="cp hidden" id="clustersSection">
+      <div class="sth"><div class="stb">3</div><div class="stt">Revisar e Confirmar</div></div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:14px"><button class="btn btn-p" id="btnConfirmAll" style="font-size:12px;padding:7px 14px">Aceitar Todas</button></div>
+      <div id="clustersList"></div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<!-- MODAL -->
+<div class="mo" id="previewModal">
+  <div class="mb">
+    <div class="mh">
+      <div class="mh-t">Histórico: <span class="mh-d" id="modalDateDisplay">--/--/----</span></div>
+      <button class="mh-c" id="btnCloseModal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="mf">
+      <select id="modalFilterLinha"><option value="">Todas Linhas</option></select>
+      <select id="modalFilterEquip"><option value="">Todos Equipamentos</option></select>
+      <select id="modalFilterErro"><option value="">Todos Erros</option></select>
+      <select id="modalFilterTurno"><option value="">Todos Turnos</option></select>
+    </div>
+    <div class="mbd" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+const API = "";
+const colors = {
+  'CRITICO-CRONICO': '#dc2626',
+  'CRITICO': '#f59e0b',
+  'CRONICO': '#3b82f6',
+  'CONFORTO': '#10b981'
+};
+
+function updateDataSource(id, source, totalRecords, totalMinutes) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const description = source && source.descricao ? source.descricao : 'Apontamentos da planilha SAP';
+  const period = source && source.data_analise ? ` · análise ${formatDayBR(source.data_analise)}` : '';
+  el.dataset.state = 'ready';
+  el.querySelector('span:nth-child(2)').innerHTML = `<b>Fonte validada:</b> ${esc(description)}${period}`;
+  const count = el.querySelector('.data-source-count');
+  if (count) {
+    const records = Number.isFinite(totalRecords) ? `${totalRecords.toLocaleString('pt-BR')} apontamentos` : '';
+    const minutes = Number.isFinite(totalMinutes) ? `${Math.round(totalMinutes).toLocaleString('pt-BR')} min` : '';
+    count.textContent = [records, minutes].filter(Boolean).join(' · ');
+  }
+}
+
+function setDataSourceError(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.dataset.state = 'error';
+  el.querySelector('span:nth-child(2)').textContent = 'Não foi possível validar os indicadores agora.';
+  const count = el.querySelector('.data-source-count');
+  if (count) count.textContent = '';
+}
+
+// ══ GLOBAL DAY STATE ══
+let selectedDay = null;     // ISO string e.g. '2026-02-11'
+let selectedDayLabel = null; // BR string e.g. '11/02/2026'
+
+function formatDayBR(iso) {
+  if (!iso || !iso.includes('-')) return iso;
+  const p = iso.split('-');
+  return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : iso;
+}
+
+function updateDayChips() {
+  ['dashDia','paretoDia','jkDia'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (sel) sel.value = selectedDay || "";
+  });
+  const sub = document.getElementById('dashSubtitle');
+  if (selectedDay) {
+    sub.textContent = `Dados filtrados pelo dia ${selectedDayLabel || selectedDay}`;
+  } else {
+    sub.textContent = 'Visão geral de confiabilidade — todos os dias consolidados.';
+  }
+}
+
+function handleDaySelectChange(e) {
+  const val = e.target.value;
+  if (!val) {
+    selectedDay = null;
+    selectedDayLabel = null;
+  } else {
+    selectedDay = val;
+    selectedDayLabel = formatDayBR(val);
+  }
+  updateDayChips();
+  // Reload current active view
+  const active = document.querySelector('.vs.active');
+  if (active) {
+    if (active.id === 'viewDash') loadDashboard();
+    if (active.id === 'viewPareto') loadPareto();
+    if (active.id === 'viewJK') loadJK();
+  }
+}
+
+document.getElementById('dashDia').addEventListener('change', handleDaySelectChange);
+document.getElementById('paretoDia').addEventListener('change', handleDaySelectChange);
+document.getElementById('jkDia').addEventListener('change', handleDaySelectChange);
+
+window.clearSelectedDay = function() {
+  selectedDay = null;
+  selectedDayLabel = null;
+  updateDayChips();
+  // Reload current active view
+  const active = document.querySelector('.vs.active');
+  if (active) {
+    if (active.id === 'viewDash') loadDashboard();
+    if (active.id === 'viewPareto') loadPareto();
+    if (active.id === 'viewJK') loadJK();
+  }
+}
+
+function selectDayAndNavigate(iso, view) {
+  selectedDay = iso;
+  selectedDayLabel = formatDayBR(iso);
+  updateDayChips();
+  // Navigate to view
+  document.querySelectorAll('.nav-i').forEach(n => n.classList.remove('active'));
+  document.querySelectorAll('.vs').forEach(v => v.classList.remove('active'));
+  const navEl = document.querySelector(`.nav-i[data-view="${view}"]`);
+  if (navEl) navEl.classList.add('active');
+  document.getElementById(view).classList.add('active');
+  if (view === 'viewDash') loadDashboard();
+  if (view === 'viewPareto') loadPareto();
+  if (view === 'viewJK') loadJK();
+}
+
+// ══ NAVIGATION ══
+document.querySelectorAll('.nav-i[data-view]').forEach(el => {
+  el.addEventListener('click', () => {
+    document.querySelectorAll('.nav-i').forEach(n => n.classList.remove('active'));
+    document.querySelectorAll('.vs').forEach(v => v.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById(el.dataset.view).classList.add('active');
+    if (el.dataset.view === 'viewDash') loadDashboard();
+    if (el.dataset.view === 'viewPareto') loadPareto();
+    if (el.dataset.view === 'viewJK') loadJK();
+    if (el.dataset.view === 'viewDrive') loadDrive();
+    if (el.dataset.view === 'viewImport') {} // import is inline
+  });
+});
+
+// ══ IMPORT BUTTON (sidebar) ══
+document.getElementById('btnOpenImport').addEventListener('click', () => {
+  document.querySelectorAll('.nav-i').forEach(n => n.classList.remove('active'));
+  document.querySelectorAll('.vs').forEach(v => v.classList.remove('active'));
+  document.getElementById('viewImport').classList.add('active');
+});
+
+// ══ DASHBOARD ══
+let dashParetoChart = null, dashJKChart = null;
+
+async function loadDashboard() {
+  updateDayChips();
+  const dia = selectedDay || '';
+  try {
+    const summaryUrl = API + '/api/dashboard/summary' + (dia ? `?data_analise=${dia}` : '');
+    const res = await fetch(summaryUrl);
+    const s = await res.json();
+    document.getElementById('kTotal').textContent = s.total_apontamentos.toLocaleString('pt-BR');
+    document.getElementById('kTotalSub').textContent = `${s.pendentes.toLocaleString('pt-BR')} pendentes · ${s.confirmados.toLocaleString('pt-BR')} confirmados`;
+    document.getElementById('kEquip').textContent = s.equipamentos_distintos;
+    document.getElementById('kEquipSub').textContent = `Em ${s.linhas_distintas} linhas`;
+    document.getElementById('kMinutos').innerHTML = Math.round(s.total_minutos_parada).toLocaleString('pt-BR') + '<small>min</small>';
+    document.getElementById('kMinSub').textContent = `${Math.round(s.total_minutos_parada / 60)} horas`;
+    document.getElementById('kConf').textContent = s.clusters_confirmados.toLocaleString('pt-BR');
+    document.getElementById('kConfSub').textContent = `${s.clusters_pendentes} pendentes · ${s.dias_analisados} dias`;
+
+    // Jack-Knife table for dashboard
+    const jkUrl = API + '/api/dashboard/jackknife' + (dia ? `?data_analise=${dia}` : '');
+    const jkRes = await fetch(jkUrl);
+    const jkData = await jkRes.json();
+    let pts = jkData.points || [];
+    pts.sort((a,b) => b.T - a.T);
+    let grandTotalT = pts.reduce((sum, p) => sum + p.T, 0);
+    let tta = 0;
+    document.getElementById('tblResumoBody').innerHTML = pts.map((p, index) => {
+      tta += p.T;
+      const pct = grandTotalT > 0 ? (tta / grandTotalT) * 100 : 0;
+      return `
+        <tr>
+          <td style="text-align:center;font-weight:bold">${index + 1}</td>
+          <td>${esc(p.equipamento || p.modo_falha)} ${p.linha ? `<span style="font-size:11px;color:var(--tx2)">(${p.linha})</span>` : ''}</td>
+          <td style="text-align:right">${p.T.toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1})}</td>
+          <td style="text-align:right">${p.Q}</td>
+          <td style="text-align:right">${p.MTTR.toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1})}</td>
+          <td style="text-align:right">${tta.toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1})}</td>
+          <td style="text-align:right">${pct.toFixed(0)}%</td>
+          <td style="text-align:right">${p.T.toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1})}</td>
+          <td style="text-align:center">
+            <span style="padding:3px 8px;border-radius:100px;font-size:11px;font-weight:700;background:${colors[p.categoria]}22;color:${colors[p.categoria]}">${p.categoria}</span>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    // Populate line dropdowns
+    (s.linhas||[]).forEach(l => {
+      ['paretoLinha','jkLinha'].forEach(selId => {
+        const sel = document.getElementById(selId);
+        if(!sel.querySelector(`option[value="${l}"]`)) {
+          sel.insertAdjacentHTML('beforeend', `<option value="${l}">${l}</option>`);
+        }
+      });
+    });
+  } catch(e) { console.error(e); }
+
+  // Mini pareto on dashboard
+  try {
+    const urlP = API + '/api/dashboard/pareto' + (dia ? `?data_analise=${dia}` : '');
+    const res = await fetch(urlP);
+    const d = await res.json();
+    const top = (d.dados || []).slice(0, 10);
+    if (dashParetoChart) dashParetoChart.destroy();
+    dashParetoChart = new Chart(document.getElementById('dashPareto'), {
+      type: 'bar',
+      data: {
+        labels: top.map(r => (r.equipamento||'').substring(0, 20)),
+        datasets: [{
+          label: 'Tempo (min)', data: top.map(r => r.tempo_min),
+          backgroundColor: 'rgba(200,16,46,0.7)', borderRadius: 4
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+        scales: { x: { ticks: { font: { size: 10 }, maxRotation: 45 } }, y: { beginAtZero: true } } }
+    });
+  } catch(e) {}
+
+  // Mini JK on dashboard
+  try {
+    const urlJ = API + '/api/dashboard/jackknife' + (dia ? `?data_analise=${dia}` : '');
+    const res = await fetch(urlJ);
+    const d = await res.json();
+    const pts = d.points || [];
+    if (dashJKChart) dashJKChart.destroy();
+    const datasets = Object.keys(colors).map(cat => ({
+      label: cat, data: pts.filter(p => p.categoria === cat).map(p => ({ x: p.Q, y: p.MTTR, label: p.equipamento })),
+      backgroundColor: colors[cat], borderColor: colors[cat], pointRadius: 5, pointHoverRadius: 8
+    }));
+    dashJKChart = new Chart(document.getElementById('dashJK'), {
+      type: 'scatter',
+      data: { datasets },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { tooltip: { callbacks: { label: ctx => ctx.raw.label ? `${ctx.raw.label} (Q=${ctx.raw.x}, MTTR=${ctx.raw.y})` : '' } } },
+        scales: { x: { title: { display: true, text: 'Frequência (n° falhas)' } }, y: { title: { display: true, text: 'MTTR (min)' } } }
+      }
+    });
+  } catch(e) {}
+}
+
+// ══ PARETO FULL ══
+let paretoChart = null;
+document.getElementById('paretoLinha').addEventListener('change', loadPareto);
+
+async function loadPareto() {
+  updateDayChips();
+  const linha = document.getElementById('paretoLinha').value;
+  const dia = selectedDay || '';
+  let params = new URLSearchParams();
+  if (linha) params.append('linha', linha);
+  if (dia) params.append('data_analise', dia);
+  
+  const url = API + "/api/dashboard/pareto" + (params.toString() ? `?${params.toString()}` : "");
+  try {
+    const res = await fetch(url);
+    const d = await res.json();
+    const dados = d.dados || [];
+    const top = dados.slice(0, 20);
+
+    if (paretoChart) paretoChart.destroy();
+    paretoChart = new Chart(document.getElementById("chartPareto"), {
+      data: {
+        labels: top.map(r => (r.equipamento||"").substring(0, 25)),
+        datasets: [
+          { type: "bar", label: "Tempo (min)", data: top.map(r => r.tempo_min), backgroundColor: "rgba(200,16,46,0.75)", borderRadius: 4, yAxisID: "y" },
+          { type: "line", label: "% Acumulado", data: top.map(r => r.pct_acumulado), borderColor: "#3b82f6", borderWidth: 2, pointRadius: 3, fill: false, yAxisID: "y1" }
+        ]
+      },
+      options: { responsive: true, maintainAspectRatio: false,
+        scales: { x: { ticks: { font: { size: 10 }, maxRotation: 45 } }, y: { beginAtZero: true, title: { display: true, text: "Tempo (min)" } }, y1: { position: "right", min: 0, max: 100, title: { display: true, text: "% Acumulado" }, grid: { drawOnChartArea: false } } } }
+    });
+
+    document.getElementById("paretoTbody").innerHTML = dados.map((r, i) => `
+      <tr><td>${i+1}</td><td>${esc(r.linha)}</td><td>${esc(r.equipamento)}</td><td>${r.falhas}</td><td>${r.tempo_min}</td><td>${r.pct_total}%</td><td>${r.pct_acumulado}%</td></tr>
+    `).join("");
+  } catch(e) { document.getElementById("paretoTbody").innerHTML = `<tr><td colspan="7" style="color:var(--accent)">Erro</td></tr>`; }
+}
+
+// ══ JACK-KNIFE FULL ══
+let jkChart = null;
+document.getElementById('jkLinha').addEventListener('change', loadJK);
+document.getElementById('jkQuadrante').addEventListener('change', loadJK);
+
+async function loadJK() {
+  updateDayChips();
+  const linha = document.getElementById('jkLinha').value;
+  const dia = selectedDay || '';
+  const quadranteFiltro = document.getElementById('jkQuadrante').value;
+  
+  let params = new URLSearchParams();
+  if (linha) params.append('linha', linha);
+  if (dia) params.append('data_analise', dia);
+  
+  const url = API + "/api/dashboard/jackknife" + (params.toString() ? `?${params.toString()}` : "");
+  try {
+    const res = await fetch(url);
+    const d = await res.json();
+    let pts = d.points || [];
+
+    if (jkChart) jkChart.destroy();
+    
+    // Filtrar no frontend caso um quadrante seja selecionado
+    const ptsFiltrados = quadranteFiltro ? pts.filter(p => p.categoria === quadranteFiltro) : pts;
+    
+    const datasets = Object.keys(colors).map(cat => ({
+      label: cat,
+      data: ptsFiltrados.filter(p => p.categoria === cat).map(p => ({ x: p.Q, y: p.MTTR, label: p.equipamento || p.modo_falha })),
+      backgroundColor: colors[cat], borderColor: colors[cat], pointRadius: 6, pointHoverRadius: 10
+    }));
+    
+    const bgOpacity = "10"; // hex for alpha
+    const annotations = d.q_threshold ? {
+      boxCritCron: { type: 'box', xMin: d.q_threshold, yMin: d.mttr_threshold, backgroundColor: colors['CRITICO-CRONICO'] + bgOpacity, borderWidth: 0 },
+      boxCrit: { type: 'box', xMax: d.q_threshold, yMin: d.mttr_threshold, backgroundColor: colors['CRITICO'] + bgOpacity, borderWidth: 0 },
+      boxCron: { type: 'box', xMin: d.q_threshold, yMax: d.mttr_threshold, backgroundColor: colors['CRONICO'] + bgOpacity, borderWidth: 0 },
+      boxConf: { type: 'box', xMax: d.q_threshold, yMax: d.mttr_threshold, backgroundColor: colors['CONFORTO'] + bgOpacity, borderWidth: 0 },
+      lineX: { type: 'line', xMin: d.q_threshold, xMax: d.q_threshold, borderColor: '#4b5563', borderWidth: 2, borderDash: [5, 5] },
+      lineY: { type: 'line', yMin: d.mttr_threshold, yMax: d.mttr_threshold, borderColor: '#4b5563', borderWidth: 2, borderDash: [5, 5] }
+    } : {};
+
+    jkChart = new Chart(document.getElementById("chartJK"), {
+      type: "scatter",
+      data: { datasets },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: {
+          tooltip: { callbacks: { label: ctx => ctx.raw.label ? `${ctx.raw.label} (Q=${ctx.raw.x}, MTTR=${ctx.raw.y})` : '' } },
+          annotation: { annotations }
+        },
+        scales: {
+          x: { beginAtZero: true, title: { display: true, text: `Frequência (Mediana: ${d.q_threshold})` } },
+          y: { beginAtZero: true, title: { display: true, text: `MTTR em min (Mediana: ${d.mttr_threshold})` } }
+        }
+      }
+    });
+
+    const catOrder = ['CRITICO-CRONICO','CRITICO','CRONICO','CONFORTO'];
+    let ttaJK = 0;
+    const sorted = [...ptsFiltrados].sort((a,b) => b.T - a.T);
+    let gtJK = sorted.reduce((s,p)=>s+p.T,0);
+    document.getElementById("jkTbody").innerHTML = sorted.map((p, i) => {
+      ttaJK += p.T;
+      const pctJK = gtJK > 0 ? (ttaJK / gtJK) * 100 : 0;
+      return `
+      <tr>
+        <td style="text-align:center;font-weight:bold">${i+1}</td>
+        <td>${esc(p.equipamento || p.modo_falha)}</td>
+        <td style="text-align:right">${p.T.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})}</td>
+        <td style="text-align:right">${p.Q}</td>
+        <td style="text-align:right">${p.MTTR.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})}</td>
+        <td style="text-align:right">${ttaJK.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})}</td>
+        <td style="text-align:right">${pctJK.toFixed(0)}%</td>
+        <td style="text-align:right">${p.T.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})}</td>
+        <td style="text-align:center"><span style="padding:3px 8px;border-radius:100px;font-size:11px;font-weight:700;background:${colors[p.categoria]}22;color:${colors[p.categoria]}">${p.categoria}</span></td>
+      </tr>
+    `}).join("");
+  } catch(e) { document.getElementById("jkTbody").innerHTML = `<tr><td colspan="6" style="color:var(--accent)">Erro</td></tr>`; }
+}
+
+// ══ DRIVE ══
+const driveGrid = document.getElementById("driveGrid");
+async function loadDrive() {
+  driveGrid.innerHTML = `<div class="lm"><span class="sp"></span> Carregando agrupamentos...</div>`;
+  try {
+    const res = await fetch(API + "/api/history/days");
+    const data = await res.json();
+    
+    // Populate dropdowns
+    ['dashDia','paretoDia','jkDia'].forEach(id => {
+      const sel = document.getElementById(id);
+      const val = sel.value;
+      sel.innerHTML = '<option value="">Todos os Dias</option>' + data.map(day => {
+        let ds = day.data_analise;
+        if (ds && ds.includes('-')) { const p = ds.split('-'); if (p.length === 3) ds = `${p[2]}/${p[1]}/${p[0]}`; }
+        return `<option value="${day.data_analise}">${ds}</option>`;
+      }).join('');
+      sel.value = val; // restore if was selected
+    });
+
+    if (!data || data.length === 0) { driveGrid.innerHTML = `<div class="em">Nenhuma padronização.</div>`; return; }
+    driveGrid.innerHTML = data.map(day => {
+      let ds = day.data_analise;
+      if (ds && ds.includes('-')) { const p = ds.split('-'); if (p.length === 3) ds = `${p[2]}/${p[1]}/${p[0]}`; }
+      return `<div class="fc">
+        <div class="fc-t" style="cursor:pointer" onclick="selectDayAndNavigate('${day.data_analise}','viewDash')">
+          <div class="fc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
+          <div><div class="fc-ti">${ds}</div><div class="fc-su">Clique para ver Dashboard</div></div>
+        </div>
+        <div class="fc-b">
+          <span>Clusters: <b>${day.total_clusters}</b></span>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-g" style="font-size:11px;padding:4px 10px" onclick="openModal('${day.data_analise}','${ds}')">Histórico</button>
+          </div>
+        </div>
+      </div>`;
+    }).join("");
+  } catch(e) { driveGrid.innerHTML = `<div class="em" style="color:var(--accent)">Erro.</div>`; }
+}
+
+// ══ MODAL ══
+const previewModal = document.getElementById("previewModal"), modalBody = document.getElementById("modalBody"), modalDateDisplay = document.getElementById("modalDateDisplay");
+let currentIsoDate = null, currentDayClusters = [], currentPage = 1, currentTotalPages = 1;
+document.getElementById("btnCloseModal").addEventListener("click", () => previewModal.classList.remove("open"));
+previewModal.addEventListener("click", e => { if (e.target === previewModal) previewModal.classList.remove("open"); });
+
+window.openModal = function(iso, br) {
+  currentIsoDate = iso; modalDateDisplay.textContent = br;
+  ["modalFilterLinha","modalFilterEquip","modalFilterErro","modalFilterTurno"].forEach(id => { const el = document.getElementById(id); el.innerHTML = el.querySelector("option").outerHTML; el.value = ""; });
+  currentPage = 1; previewModal.classList.add("open"); loadModalFilters(); loadModalHistory();
+}
+async function loadModalFilters() {
+  try { const r = await fetch(API+`/api/history/filters?date=${currentIsoDate}`); const d = await r.json(); popDD(d); } catch(e) {}
+}
+async function loadModalHistory() {
+  if (currentPage === 1) modalBody.innerHTML = `<div class="lm"><span class="sp"></span> Buscando...</div>`;
+  else { const b = document.getElementById("btnLM"); if(b){b.innerHTML=`<span class="sp"></span>`;b.disabled=true;} }
+  const f = ["modalFilterLinha","modalFilterEquip","modalFilterErro","modalFilterTurno"].map(id => encodeURIComponent(document.getElementById(id).value));
+  const url = API+`/api/history/by-date?date=${currentIsoDate}&page=${currentPage}&limit=50&linha=${f[0]}&equipamento=${f[1]}&tipo_parada=${f[2]}&turno=${f[3]}`;
+  try {
+    const r = await fetch(url); const d = await r.json();
+    if (currentPage === 1) currentDayClusters = d.clusters; else currentDayClusters = currentDayClusters.concat(d.clusters);
+    currentTotalPages = d.pages; renderM(d.clusters, currentPage === 1, d.total);
+  } catch(e) { if (currentPage === 1) modalBody.innerHTML = `<div class="em" style="color:var(--accent)">Falha.</div>`; }
+}
+function popDD(data) {
+  const ids = ["modalFilterLinha","modalFilterEquip","modalFilterErro","modalFilterTurno"];
+  const keys = ["linhas","equipamentos","erros","turnos"];
+  const labels = ["Todas Linhas","Todos Equipamentos","Todos Erros","Todos Turnos"];
+  ids.forEach((id,i) => { const el = document.getElementById(id); const k = el.value;
+    el.innerHTML = `<option value="">${labels[i]}</option>`+(data[keys[i]]||[]).map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join(""); el.value = k; });
+}
+["modalFilterLinha","modalFilterEquip","modalFilterErro","modalFilterTurno"].forEach(id => { document.getElementById(id).addEventListener("change", () => { currentPage = 1; loadModalHistory(); }); });
+
+function renderM(items, first, total) {
+  if (first && (!items || items.length === 0)) { modalBody.innerHTML = `<div class="em">Nenhum registro.</div>`; return; }
+  const html = items.map(c => {
+    let tm = ""; if (c.confirmed_at && c.confirmed_at.length >= 16) tm = c.confirmed_at.substring(11, 16);
+    return `<div class="hc" id="mod-hi-${c.id}"><div class="hr"><div class="hi"><div class="hn">${esc(c.suggested_name)}</div><div class="ht"><span class="htg htg-r">${c.total_registros} apt</span>${c.linha?`<span class="htg htg-g">${esc(c.linha)}</span>`:''}</div><div class="hm">${tm?`Confirmado às ${tm}`:'Confirmado'}</div></div>
+    <div class="ha"><button class="btn btn-g" style="font-size:12px;padding:5px 10px" onclick="toggleD(${c.id},this)">Detalhes</button><button class="btn btn-g" style="font-size:12px;padding:5px 10px;color:var(--accent)" onclick="revertM(${c.id},this)">Desfazer</button></div></div>
+    <div class="hd" id="det-${c.id}"><div class="lm"><span class="sp"></span></div></div></div>`;
+  }).join("");
+  if (first) { modalBody.innerHTML = `<div style="font-size:13px;color:var(--txd);margin-bottom:14px">Total: <b>${total.toLocaleString("pt-BR")}</b></div>` + html; }
+  else { const o = document.getElementById("lmw"); if(o)o.remove(); modalBody.insertAdjacentHTML("beforeend", html); }
+  if (currentPage < currentTotalPages) modalBody.insertAdjacentHTML("beforeend", `<div id="lmw" style="text-align:center;padding:20px 0"><button id="btnLM" class="btn btn-g" onclick="loadNP()">Carregar Mais</button></div>`);
+}
+window.loadNP = function() { if (currentPage < currentTotalPages) { currentPage++; loadModalHistory(); } }
+window.toggleD = async function(id, btn, isPending=false) {
+  const el = document.getElementById(`det-${id}`);
+  if (el.style.display === "block") { el.style.display = "none"; btn.textContent = "Detalhes"; return; }
+  el.style.display = "block"; btn.textContent = "Ocultar";
+  if (el.dataset.loaded) return;
+  try { const r = await fetch(API+`/api/clusters/${id}`); const d = await r.json();
+    if (!d.members||d.members.length===0) { el.innerHTML = `<div class="em">Vazio.</div>`; return; }
+    el.innerHTML = d.members.map(m => `<div class="dr" id="mem-${m.id}"><div class="dr-o">${esc(m.observacao_raw||"(Sem obs)")}</div><div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:4px"><div class="dr-m"><span>Ordem: ${esc(m.ordem)}</span><span>Início: ${esc(m.data_inicio)}</span><span>${m.minutos_parada} min</span><span>Turno: ${esc(m.turno)}</span></div>${isPending ? `<div style="display:flex;gap:6px;flex-shrink:0"><button class="btn btn-p" style="font-size:11px;padding:3px 8px" onclick="cPM(${id}, ${m.id}, this)">Aceitar</button><button class="btn btn-g" style="font-size:11px;padding:3px 8px;color:var(--accent)" onclick="rPM(${id}, ${m.id}, this)">Descartar</button></div>` : ''}</div></div>`).join("");
+    el.dataset.loaded = "true";
+  } catch(e) { el.innerHTML = `<div class="em" style="color:var(--accent)">Falha.</div>`; }
+}
+window.cPM = async function(clusterId, recordId, btn) {
+  btn.disabled = true; btn.innerHTML = '...';
+  try {
+    const r = await fetch(API+`/api/clusters/${clusterId}/confirm`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ record_ids: [recordId] })
+    });
+    if (!r.ok) throw 0;
+    const el = document.getElementById(`mem-${recordId}`);
+    el.style.opacity = '0.3'; el.style.pointerEvents = 'none';
+  } catch(e) { alert("Erro"); btn.disabled = false; btn.innerHTML = 'Aceitar'; }
+}
+window.rPM = async function(clusterId, recordId, btn) {
+  btn.disabled = true; btn.innerHTML = '...';
+  try {
+    const r = await fetch(API+`/api/clusters/${clusterId}/remove-record`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ record_id: recordId })
+    });
+    if (!r.ok) throw 0;
+    const el = document.getElementById(`mem-${recordId}`);
+    el.style.opacity = '0.3'; el.style.pointerEvents = 'none';
+  } catch(e) { alert("Erro"); btn.disabled = false; btn.innerHTML = 'Descartar'; }
+}
+window.revertM = async function(id, btn) {
+  if (!confirm("Reverter?")) return; btn.disabled = true; btn.innerHTML = '<span class="sp"></span>';
+  try { const r = await fetch(API+`/api/clusters/${id}/revert`,{method:"POST"}); if(!r.ok) throw 0;
+    document.getElementById("mod-hi-"+id).style.opacity = ".3"; document.getElementById("mod-hi-"+id).style.pointerEvents = "none";
+  } catch(e) { alert("Falha"); btn.disabled = false; btn.textContent = "Desfazer"; }
+}
+
+// ══ UPLOAD & DEDUP ══
+const fileInput = document.getElementById("fileInput");
+document.getElementById("dropzone").addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => { if(fileInput.files.length) { document.getElementById("fileName").textContent = fileInput.files[0].name; document.getElementById("fileNameWrapper").style.display = "block"; document.getElementById("uploadBtn").disabled = false; } });
+document.getElementById("uploadBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("uploadBtn"); btn.disabled = true; btn.innerHTML = '<span class="sp"></span> Enviando...';
+  const fd = new FormData(); fd.append("file", fileInput.files[0]);
+  if (window.forceUpload) fd.append("force", "true");
+  try { 
+    const r = await fetch(API+"/api/upload",{method:"POST",body:fd}); 
+    const d = await r.json().catch(()=>({}));
+    if(r.status === 409) {
+      if (confirm((d.mensagem || "Planilha duplicada.") + " Deseja enviar os mesmos dados de novo?")) {
+        window.forceUpload = true;
+        btn.innerHTML = "Enviar Planilha";
+        btn.disabled = false;
+        btn.click();
+        return;
+      } else {
+        btn.innerHTML = "Enviar Planilha";
+        btn.disabled = false;
+        return;
+      }
+    }
+    if(!r.ok) throw d.erro || "Erro ao enviar planilha";
+    window.forceUpload = false;
+    document.getElementById("uploadResult").style.display = "block"; document.getElementById("dedupSection").classList.remove("hidden"); loadDrive();
+  } catch(e) { alert(e); btn.disabled = false; btn.innerHTML = "Enviar Planilha"; return; } 
+  btn.innerHTML = "Planilha Enviada";
+});
+document.getElementById("dedupBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("dedupBtn"); btn.disabled = true; btn.innerHTML = '<span class="sp"></span> Analisando...';
+  try { const r = await fetch(API+"/api/dedup/run",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}); const d = await r.json();
+    const t = setInterval(async()=>{ const s = await fetch(API+`/api/dedup/status/${d.job_id}`).then(r=>r.json());
+      if(s.status==="done"){clearInterval(t);btn.innerHTML="Concluída";document.getElementById("clustersSection").classList.remove("hidden");loadPC(1);}
+      else if(s.status==="error"){clearInterval(t);btn.innerHTML="Erro";}},2000);
+  } catch(e) { btn.innerHTML = "Erro"; }
+});
+let currentPendingPage = 1;
+let totalPendingPages = 1;
+
+async function loadPC(page, append=false) {
+  const list = document.getElementById("clustersList");
+  if (!append) {
+    list.innerHTML = `<div class="lm"><span class="sp"></span> Buscando propostas...</div>`;
+    currentPendingPage = page;
+  } else {
+    const btnLm = document.getElementById("btnLMPend");
+    if(btnLm) { btnLm.innerHTML = `<span class="sp"></span>`; btnLm.disabled = true; }
+  }
+  
+  try { 
+    const r = await fetch(API+`/api/clusters?status=pending&page=${page}&limit=50`); 
+    const d = await r.json();
+    totalPendingPages = d.pages || 1;
+    
+    if(d.total===0) {
+      if(!append) {
+        list.innerHTML=`
+          <div class="em" style="margin-bottom:16px;color:#10b981;font-weight:600">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="32" height="32" style="margin-bottom:10px;display:block;margin-left:auto;margin-right:auto"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            Tudo finalizado! Nenhuma padronização pendente.
+          </div>
+          <button class="btn btn-p" style="width:100%;padding:10px;font-size:14px" onclick="resetUploadForm()">Carregar Outra Planilha</button>
+        `;
+      }
+      loadDrive();
+      return;
+    }
+    
+    const html = d.clusters.map(c => `
+      <div class="ci" style="flex-direction:column; align-items:stretch">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px">
+          <div>
+            <div class="ci-t">${esc(c.suggested_name)}</div>
+            <div style="font-size:13px;color:var(--tx2)">${esc(c.linha)} — ${c.member_record_ids ? c.member_record_ids.length : 0} reg</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-g" style="font-size:12px;padding:5px 10px" onclick="toggleD(${c.id},this,true)">Detalhes</button>
+            <button class="btn btn-p" style="font-size:12px;padding:5px 10px" onclick="cP(${c.id},this)">Aceitar</button>
+            <button class="btn btn-g" style="font-size:12px;padding:5px 10px;color:var(--accent)" onclick="rP(${c.id},this)">Descartar</button>
+          </div>
+        </div>
+        <div class="hd" id="det-${c.id}"><div class="lm"><span class="sp"></span> Buscando registros...</div></div>
+      </div>
+    `).join("");
+    
+    if (!append) {
+      list.innerHTML = `<div style="font-size:13px;color:var(--txd);margin-bottom:14px">Total pendente: <b>${d.total.toLocaleString("pt-BR")}</b></div>` + html;
+    } else {
+      const o = document.getElementById("lmwPend"); if(o) o.remove();
+      list.insertAdjacentHTML("beforeend", html);
+    }
+    
+    if (currentPendingPage < totalPendingPages) {
+      list.insertAdjacentHTML("beforeend", `<div id="lmwPend" style="text-align:center;padding:16px 0"><button id="btnLMPend" class="btn btn-g" onclick="loadPCPag()">Carregar Mais (${d.total - (currentPendingPage*50)} restantes)</button></div>`);
+    }
+  } catch(e) { 
+    if(!append) list.innerHTML = `<div class="em" style="color:var(--accent)">Falha ao carregar pendentes.</div>`; 
+  }
+}
+
+window.loadPCPag = function() {
+  if(currentPendingPage < totalPendingPages) {
+    currentPendingPage++;
+    loadPC(currentPendingPage, true);
+  }
+}
+
+window.cP = async function(id,btn){
+  btn.disabled=true;
+  btn.innerHTML = '<span class="sp"></span>';
+  await fetch(API+`/api/clusters/${id}/confirm`,{method:"POST"});
+  btn.closest('.ci').style.opacity = '0.3';
+  btn.closest('.ci').style.pointerEvents = 'none';
+}
+window.rP = async function(id,btn){
+  btn.disabled=true;
+  btn.innerHTML = '<span class="sp"></span>';
+  await fetch(API+`/api/clusters/${id}/reject`,{method:"POST"});
+  btn.closest('.ci').style.opacity = '0.3';
+  btn.closest('.ci').style.pointerEvents = 'none';
+}
+document.getElementById("btnConfirmAll").addEventListener("click", async()=>{
+  if(!confirm("Aceitar todas?"))return;const btn=document.getElementById("btnConfirmAll");btn.disabled=true;btn.innerHTML="...";
+  try{const r=await fetch(API+"/api/clusters/confirm-all",{method:"POST"});const d=await r.json();
+    const t=setInterval(async()=>{const s=await fetch(API+`/api/clusters/confirm-all/status/${d.job_id}`).then(r=>r.json());
+      if(s.status==="done"){clearInterval(t);btn.innerHTML="Aceitar Todas";btn.disabled=false;loadPC(1);}},2000);
+  }catch(e){}
+});
+
+function esc(s){if(s==null)return'';const d=document.createElement("div");d.textContent=s;return d.innerHTML}
+
+// INIT
+loadDrive();
+</script>
+</body>
+</html>
