@@ -1299,3 +1299,277 @@ body.kb-grabbing * {
     bottom: 150px;
   }
 }
+
+/* ---------- Legenda das cores ---------- */
+.kb-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 0 4px;
+  font-size: 12px;
+  color: var(--kb-soft);
+}
+.kb-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.kb-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--t);
+}
+.kb-legend b {
+  font-weight: 750;
+  color: var(--kb-text);
+}
+
+/* ---------- Sino de revisão (painel lateral) ---------- */
+.kb-round.has-items {
+  color: var(--red);
+  border-color: #f3c3c8;
+  background: #fff7f7;
+}
+.bl-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 180;
+  background: #14131340;
+  backdrop-filter: blur(2px);
+  animation: bl-fade 0.2s ease both;
+}
+.bl {
+  --ok: #1f9d6b;
+  --warn: #e0a100;
+  --bad: #e0101f;
+  --man: #3a67c4;
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 181;
+  width: min(440px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 30px 70px -20px #14131366;
+  animation: bl-in 0.28s var(--ease) both;
+  overflow: hidden;
+}
+.bl .tone-ok { --t: var(--ok); }
+.bl .tone-warn { --t: var(--warn); }
+.bl .tone-bad { --t: var(--bad); }
+.bl .tone-man { --t: var(--man); }
+@keyframes bl-in {
+  from { transform: translateX(24px); opacity: 0; }
+}
+@keyframes bl-fade {
+  from { opacity: 0; }
+}
+.bl-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px 18px 16px 20px;
+  border-bottom: 1px solid #f0eeec;
+}
+.bl-icon {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: #fff1f2;
+  color: var(--red);
+}
+.bl-head > div {
+  flex: 1;
+  min-width: 0;
+}
+.bl-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+}
+.bl-head h2 span {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  font-size: 11.5px;
+}
+.bl-head p {
+  margin-top: 4px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+.bl-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  background: #faf9f8;
+}
+.bl-item {
+  display: grid;
+  gap: 9px;
+  padding: 14px 14px 12px;
+  border-radius: 16px;
+  background: #fff;
+  border: 1px solid #efedeb;
+  box-shadow: inset 3px 0 0 var(--t);
+}
+.bl-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.bl-title i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--t);
+  transform: translateY(-1px);
+}
+.bl-title b {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 750;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.bl-title small {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.bl-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+.bl-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.bl-class {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.bl-class span {
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.bl-note {
+  width: 100%;
+  resize: vertical;
+  min-height: 34px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid #ebe8e5;
+  background: #fbfaf9;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.bl-note:focus {
+  outline: none;
+  border-color: #cfcac6;
+  background: #fff;
+}
+.bl-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.bl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid #e3dfdc;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--ink);
+}
+.bl-btn:hover:not(:disabled) {
+  border-color: #cfcac6;
+  background: #faf9f8;
+}
+.bl-btn.primary {
+  background: #1f9d6b;
+  border-color: #1f9d6b;
+  color: #fff;
+}
+.bl-btn.primary:hover:not(:disabled) {
+  background: #188257;
+}
+.bl-btn.ghost {
+  border-color: transparent;
+  color: var(--ink-soft);
+}
+.bl-empty {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 48px 20px;
+  text-align: center;
+}
+.bl-empty span {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #e7f6ef;
+  color: #1f9d6b;
+}
+.bl-empty b {
+  font-size: 14.5px;
+}
+.bl-empty p {
+  max-width: 280px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+/* O seletor de falha abre por cima do painel do sino. */
+.class-picker {
+  z-index: 190;
+}
+.pending-ring.bell-ring {
+  background: #fff1f2;
+  color: var(--red);
+}
+.pending-ring.bell-ring::before,
+.pending-ring.bell-ring::after {
+  display: none;
+}

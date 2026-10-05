@@ -54,7 +54,12 @@ def learn(doc, card_ids, previous=None):
                 mem[key] = {'label': label, 'count': old.get('count', 0) + 1 if old.get('label') == label else 1, 'at': now}
                 changed += 1
             elif previous and (mem.get(key) or {}).get('label') == previous.get(card['id']):
-                mem.pop(key, None)
+                # Devolvido à classe original: se ela tinha vindo da memória (lição de outra planilha),
+                # a lição antiga volta; senão a correção é esquecida.
+                if card.get('suggested_source') == 'memoria' and card.get('suggested'):
+                    mem[key] = {'label': card['suggested'], 'count': 1, 'at': now}
+                else:
+                    mem.pop(key, None)
                 changed += 1
     if changed:
         store.set_setting('class_memory', mem)
@@ -120,7 +125,8 @@ def finished(doc):
         return False
     if 'finished_at' in doc:
         return bool(doc['finished_at'])
-    return bool(doc.get('cards')) and all(c.get('validated') and not c.get('held') for c in doc['cards'])
+    active = [c for c in doc.get('cards') or [] if not c.get('held')]
+    return bool(active) and all(c.get('validated') for c in active)
 
 
 def training_rows():
@@ -201,6 +207,26 @@ def learning_sheets():
     return store.get_setting('learning_sheets') or []
 
 
+def original_class(doc, card, cat=None, mem=None):
+    """Classe que a ML sugeriu quando a planilha chegou (antes de qualquer correção feita neste card)."""
+    if card.get('suggested'):
+        return card['suggested']
+    records = {r['id']: r for r in doc['records']}
+    mem = dict(memory() if mem is None else mem)
+    for rid in card['record_ids']:
+        mem.pop(fc.memory_key(records[rid].get('observacao_raw')), None)
+    return card_auto_class(card, records, cat or catalog(), mem)
+
+
+def _set_label(doc, card, label):
+    """Classe manual; devolver o card à classe ORIGINAL (a da chegada) volta ao automático,
+    com a cor de criticidade de antes, em vez de virar "alteração manual"."""
+    if label and label != original_class(doc, card):
+        card['failure_class'] = label
+    else:
+        card.pop('failure_class', None)
+
+
 def card_auto_class(card, records, cat, mem=None):
     return card_auto(card, details_for([records[i] for i in card['record_ids']], cat, mem))['label']
 
@@ -266,7 +292,10 @@ def ready(doc):
         # Fluxo único: o Dashboard libera depois do primeiro "Salvar" da validação.
         from . import pipeline
         return pipeline.is_ready(doc)
-    return bool(doc['cards']) and all(c['validated'] and not c['held'] for c in doc['cards'])
+    # Itens no sino NÃO travam: a planilha pode ser finalizada e eles entram nos gráficos
+    # do dia deles quando forem devolvidos (reduced_records só usa cards validados fora do sino).
+    active = [c for c in doc['cards'] if not c['held']]
+    return bool(active) and all(c['validated'] for c in active)
 
 
 def summary(doc):
@@ -393,7 +422,7 @@ def mutate(doc, body):
     columns = {c['id']: c for c in doc['columns']}
     card = cards.get(body.get('card_id'))
     column = columns.get(body.get('column_id'))
-    if action in {'validate_card', 'hold', 'move', 'rename_card', 'split_card', 'set_class'} and not card:
+    if action in {'validate_card', 'hold', 'hold_note', 'release', 'move', 'rename_card', 'split_card', 'set_class'} and not card:
         raise ValueError('Card não encontrado.')
     if action in {'validate_column', 'delete_column', 'move'} and not column:
         raise ValueError('Coluna não encontrada.')
@@ -436,10 +465,7 @@ def mutate(doc, body):
     elif action == 'set_class':
         # Classificação manual da falha (item 1.4): vazio volta ao automático.
         label = re.sub(r'\s+', ' ', str(body.get('failure_class') or '')).strip().upper()[:120]
-        if label:
-            card['failure_class'] = label
-        else:
-            card.pop('failure_class', None)
+        _set_label(doc, card, label)
     elif action == 'set_classes':
         # Lote de classes definidas pelo analista.
         items = body.get('items') or []
@@ -449,7 +475,7 @@ def mutate(doc, body):
             target = cards.get(str((it or {}).get('card_id')))
             label = re.sub(r'\s+', ' ', str((it or {}).get('failure_class') or '')).strip().upper()[:120]
             if target and label:
-                target['failure_class'] = label
+                _set_label(doc, target, label)
                 target['validated'] = False
     elif action == 'validate_confident':
         # Lote seguro: só cards de confiança alta (ou já classificados pelo analista).
@@ -474,14 +500,38 @@ def mutate(doc, body):
         # Confirmação humana explícita: a interface exige que a pessoa digite CONFIRMAR.
         if str(body.get('confirm') or '').strip().upper() != 'CONFIRMAR':
             raise ValueError('Digite CONFIRMAR para validar todos os cards.')
-        if any(c['held'] for c in cards.values()):
-            raise ValueError('Resolva os itens do sino antes de confirmar tudo.')
+        # Os itens do sino ficam lá (podem ser devolvidos depois); o resto é validado.
         for item in cards.values():
-            item['validated'] = True
+            if not item['held']:
+                item['validated'] = True
         for col in columns.values():
             col['validated'] = True
     elif action == 'hold':
         card['held'], card['validated'] = True, False
+        card['held_at'] = datetime.now().astimezone().isoformat(timespec='seconds')
+        note = str(body.get('note') or '').strip()[:300]
+        if note:
+            card['held_note'] = note
+        else:
+            card.pop('held_note', None)
+    elif action == 'hold_note':
+        if not card['held']:
+            raise ValueError('O card não está no sino.')
+        note = str(body.get('note') or '').strip()[:300]
+        if note:
+            card['held_note'] = note
+        else:
+            card.pop('held_note', None)
+    elif action == 'release':
+        # Devolver do sino: volta à coluna/falha dele (ou à falha escolhida) e, se pedido, já validado.
+        if not card['held']:
+            raise ValueError('O card não está no sino.')
+        if 'failure_class' in body:
+            label = re.sub(r'\s+', ' ', str(body.get('failure_class') or '')).strip().upper()[:120]
+            _set_label(doc, card, label)
+        card['held'], card['validated'] = False, bool(body.get('validate'))
+        for k in ('held_at', 'held_note'):
+            card.pop(k, None)
     elif action == 'move':
         was_validated = column['validated']
         card['column_id'], card['held'], card['validated'] = column['id'], False, was_validated

@@ -59,6 +59,9 @@ export type Card = {
   validated_by?: string;
   suggestion?: string;
   frozen?: boolean;
+  /** Sino de revisão: quando entrou e a anotação do analista. */
+  held_at?: string;
+  held_note?: string;
 };
 export type Confidence = "alta" | "media" | "baixa" | "manual";
 export type Automation = {

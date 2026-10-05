@@ -84,10 +84,13 @@ def test_full_board_persistence_validation_hold_move_and_source(client):
     assert board['ready']
     stale = action(client, {**board, 'revision': 1}, 'hold', card_id=pump['id'])
     assert stale.status_code == 409
-    # O sino torna o card pendente e bloqueia o dashboard inclusive pela API.
+    # O sino não trava: dá para finalizar com o item lá; ele fica fora dos gráficos até ser devolvido.
     board = action(client, board, 'hold', card_id=pump['id']).json
-    assert board['held_count'] == 1 and not board['ready']
-    assert client.post(f'/api/workspace/analyses/{analysis_id}/finish').status_code == 409
+    assert board['held_count'] == 1 and board['ready']
+    assert client.post(f'/api/workspace/analyses/{analysis_id}/finish').status_code == 200
+    data = client.get(f'/api/workspace/analytics?ids={analysis_id}&count=lines').json
+    assert data['metrics']['lines'] == 1
+    board = client.get(f'/api/workspace/analyses/{analysis_id}').json  # finalizar muda a revisão
     board = action(client, board, 'move', card_id=pump['id'], column_id=motor['id']).json
     assert board['held_count'] == 0 and board['ready']
     # Não é possível excluir coluna ocupada.
@@ -184,9 +187,10 @@ def test_validate_all_requires_human_confirmation(client):
     refused = action(client, board, 'validate_all')
     assert refused.status_code == 400 and 'CONFIRMAR' in refused.json['erro']
     held = action(client, board, 'hold', card_id=board['cards'][0]['id']).json
-    blocked = action(client, held, 'validate_all', confirm='CONFIRMAR')
-    assert blocked.status_code == 400
-    moved = action(client, held, 'move', card_id=held['cards'][0]['id'], column_id=held['columns'][0]['id']).json
+    # Confirmar todos valida o que está fora do sino; o item do sino continua lá.
+    partial = action(client, held, 'validate_all', confirm='CONFIRMAR').json
+    assert partial['ready'] and partial['held_count'] == 1
+    moved = action(client, partial, 'move', card_id=held['cards'][0]['id'], column_id=held['columns'][0]['id']).json
     done = action(client, moved, 'validate_all', confirm='confirmar').json
     assert done['ready'] and all(c['validated'] for c in done['columns'])
 
@@ -716,3 +720,46 @@ def test_pareto_and_jackknife_match_hand_calculation(client):
     assert cat == {'M1': (25, 'Crítico-crônico'), 'M2': (90, 'Crítico'), 'M5': (20, 'Crítico'),
                    'M3': (3, 'Crônico'), 'M4': (5, 'Conforto')}
     # Com a mediana (método antigo) o corte de Q seria 3 e a M5 viraria crítico-crônico por empate.
+
+
+def test_card_returned_to_original_column_gets_its_color_back(client):
+    rows = [['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'FALHA NO SENSOR DE SAIDA', 10],
+            ['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'ROLAMENTO QUEBRADO', 5]]
+    board = upload(client, rows).json
+    card = next(c for c in board['cards'] if c['class'] == 'FALHA DE SENSOR')
+    color = card['confidence']
+    board = action(client, board, 'set_class', card_id=card['id'], failure_class='FALHA DE ROLAMENTO').json
+    moved = next(c for c in board['cards'] if c['id'] == card['id'])
+    assert moved['confidence'] == 'manual' and service.memory()
+    # Devolver à coluna original (mesmo que a UI mande o nome da classe) volta ao automático e à cor de antes.
+    board = action(client, board, 'set_class', card_id=card['id'], failure_class='FALHA DE SENSOR').json
+    back = next(c for c in board['cards'] if c['id'] == card['id'])
+    assert back['class'] == 'FALHA DE SENSOR' and back['confidence'] == color and not back['failure_class']
+    assert 'FALHA NO SENSOR DE SAIDA' not in service.memory()
+    # Em lote (arrastar o bloco da máquina) também.
+    board = action(client, board, 'set_classes', items=[{'card_id': card['id'], 'failure_class': 'FALHA DE MOTOR'}]).json
+    board = action(client, board, 'set_classes', items=[{'card_id': card['id'], 'failure_class': 'FALHA DE SENSOR'}]).json
+    assert next(c for c in board['cards'] if c['id'] == card['id'])['confidence'] == color
+
+
+def test_bell_finish_with_held_and_release_later_to_the_right_day(client):
+    rows = [['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'FALHA NO SENSOR DE SAIDA', 10],
+            ['U1', '14/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'ROLAMENTO QUEBRADO', 7]]
+    board = upload(client, rows).json
+    rol = next(c for c in board['cards'] if c['class'] == 'FALHA DE ROLAMENTO')
+    board = action(client, board, 'hold', card_id=rol['id'], note='Confirmar com a manutenção').json
+    held = next(c for c in board['cards'] if c['id'] == rol['id'])
+    assert held['held'] and held['held_note'] == 'Confirmar com a manutenção' and held['held_at']
+    board = action(client, board, 'validate_all', confirm='CONFIRMAR').json
+    assert client.post(f"/api/workspace/analyses/{board['id']}/finish").status_code == 200
+    day14 = client.get(f"/api/workspace/analytics?ids={board['id']}&from=2026-09-14&to=2026-09-14&count=lines").json
+    assert day14['metrics']['lines'] == 0
+    board = client.get(f"/api/workspace/analyses/{board['id']}").json
+    # Dias depois: devolve trocando a falha e já validado → entra no dia 14, com a falha escolhida.
+    board = action(client, board, 'release', card_id=rol['id'], failure_class='FALHA DE EIXO', validate=True).json
+    back = next(c for c in board['cards'] if c['id'] == rol['id'])
+    assert not back['held'] and back['validated'] and back['class'] == 'FALHA DE EIXO' and board['ready']
+    assert 'held_at' not in back and service.memory()['ROLAMENTO QUEBRADO']['label'] == 'FALHA DE EIXO'
+    day14 = client.get(f"/api/workspace/analytics?ids={board['id']}&from=2026-09-14&to=2026-09-14&count=lines").json
+    assert day14['metrics']['lines'] == 1 and day14['failures'][0]['key'] == 'FALHA DE EIXO'
+    assert action(client, board, 'release', card_id=rol['id']).status_code == 400

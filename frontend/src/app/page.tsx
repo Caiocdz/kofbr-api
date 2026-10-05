@@ -137,6 +137,7 @@ function Home({ analyses }: { analyses: Analysis[] }) {
   const [today] = useState(localToday);
   const ready = analyses.filter((a) => a.ready),
     pending = analyses.filter((a) => !a.ready);
+  const belled = analyses.filter((a) => a.ready && a.mode !== "ml" && a.held_count > 0);
   const daily = useMemo(
     () =>
       ready
@@ -269,6 +270,36 @@ function Home({ analyses }: { analyses: Analysis[] }) {
                 </button>
               );
             })}
+          </div>
+        </section>
+      )}
+      {belled.length > 0 && (
+        <section className="pending-section">
+          <div className="section-heading">
+            <div>
+              <h2>
+                Itens no sino <span className="count-pill">{belled.reduce((n, a) => n + a.held_count, 0)}</span>
+              </h2>
+              <p>Planilhas já liberadas com itens separados para decidir depois. Ao devolver, eles entram no dia certo dos gráficos.</p>
+            </div>
+          </div>
+          <div className="pending-list">
+            {belled.map((a) => (
+              <button className="pending-item" key={a.id} onClick={() => navigate({ view: "quadro", id: a.id })}>
+                <span className="pending-ring bell-ring">
+                  <Icon name="bell" size={18} />
+                </span>
+                <span className="pending-name">
+                  <b>{a.filename}</b>
+                  <small>
+                    {a.held_count} {a.held_count === 1 ? "item" : "itens"} no sino · {a.days.length > 1 ? `${dateLabel(a.days[0])} a ${dateLabel(a.days[a.days.length - 1])}` : a.days[0] ? dateLabel(a.days[0]) : ""}
+                  </small>
+                </span>
+                <span className="pending-action">
+                  Abrir sino <Icon name="arrow" size={16} />
+                </span>
+              </button>
+            ))}
           </div>
         </section>
       )}

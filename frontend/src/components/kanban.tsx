@@ -1,6 +1,7 @@
 "use client";
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
+import { createPortal } from "react-dom";
 import {
   api,
   apiUrl,
@@ -19,6 +20,7 @@ import {
 } from "@/lib/radar";
 import { Icon, Modal, Loading, ErrorNotice } from "./ui";
 import CatalogEditor from "./catalog";
+import BellDrawer from "./bell";
 import { ConfidenceBadge, MoreMenu, SafeBatchModal, type GroupBy, type Queue } from "./automation";
 
 /** Coluna do quadro: uma máquina (visão por máquina) ou uma classe de falha (visão por falha). */
@@ -54,34 +56,6 @@ const LIGHTS: { key: Confidence; label: string; hint: string }[] = [
   { key: "baixa", label: "Revisar", hint: "Nem o catálogo nem a ML reconheceram. Precisa de você." },
 ];
 
-function Move({
-  columns,
-  busy,
-  onMove,
-}: {
-  columns: (Column & { context?: string })[];
-  busy: boolean;
-  onMove: (id: string) => void;
-}) {
-  const [target, setTarget] = useState("");
-  return (
-    <div className="move-form">
-      <select aria-label="Coluna de destino" value={target} onChange={(e) => setTarget(e.target.value)}>
-        <option value="">Escolher coluna…</option>
-        {columns.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name} · {c.context ?? `${c.unit} / ${c.line}`}
-            {c.validated ? " · validada" : ""}
-          </option>
-        ))}
-      </select>
-      <button className="btn small primary" disabled={!target || busy} onClick={() => onMove(target)}>
-        Mover card <Icon name="arrow" size={14} />
-      </button>
-    </div>
-  );
-}
-
 /* ===================== Arrastar e soltar =====================
    Arrasto próprio (eventos de ponteiro), sem o drag-and-drop nativo do navegador:
    - o item só começa a arrastar depois de 6px (clique simples continua abrindo o card);
@@ -101,6 +75,7 @@ type Handlers = {
   deleteColumn: (columnId: string) => void;
   validateCards: (cardIds: string[]) => void;
   toggleGroup: (key: string) => void;
+  hold: (card: Card) => void;
 };
 const CARD_KEYS: (keyof Card)[] = ["id", "name", "validated", "held", "class", "failure_class", "count", "minutes", "column_id", "sample", "confidence", "reason", "events"];
 const sameCard = (a: Card, b: Card) => a === b || CARD_KEYS.every((k) => a[k] === b[k]);
@@ -171,7 +146,7 @@ const KanbanCard = memo(
               title="Enviar para revisão no sino"
               aria-label={`Enviar ${card.name} ao sino de revisão`}
               disabled={busy}
-              onClick={() => void h.act("hold", { card_id: card.id })}
+              onClick={() => h.hold(card)}
             >
               <Icon name="bell" size={14} />
             </button>
@@ -314,7 +289,7 @@ const MachineGroup = memo(
                     title="Enviar para revisão no sino"
                     aria-label={`Enviar ${card.name} ao sino de revisão`}
                     disabled={busy}
-                    onClick={() => void h.act("hold", { card_id: card.id })}
+                    onClick={() => h.hold(card)}
                   >
                     <Icon name="bell" size={13} />
                   </button>
@@ -655,7 +630,7 @@ function ClassPicker({
   const list = classes.filter((c) => c.toLowerCase().includes(q.toLowerCase()));
   const top = Math.min(anchor.bottom + 6, window.innerHeight - 360);
   const left = Math.min(anchor.left, window.innerWidth - 300);
-  return (
+  return createPortal(
     <div className="class-picker" ref={ref} style={{ top, left }} role="dialog" aria-label="Escolher classe de falha">
       <input autoFocus placeholder="Buscar classe…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar classe" />
       <div className="class-picker-list">
@@ -674,7 +649,8 @@ function ClassPicker({
         <Icon name="plus" size={13} />
         Nova classe…
       </button>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -770,10 +746,6 @@ function MlPanel({
             ? `${fmt((fromPast / records) * 100, 0)}% desta planilha já chegou classificada pelo que a ML aprendeu`
             : `${fmt(a.auto_rate, 1)}% dos apontamentos classificados sozinhos`}
           {last && measured != null ? ` · modelo: ${fmt(measured, 1)}%` : ""}
-          <button type="button" className="kb-link" onClick={() => navigate({ view: "desempenho" })}>
-            Ver desempenho
-            <Icon name="arrow" size={12} />
-          </button>
         </p>
       </div>
       <div className="kb-lights" role="radiogroup" aria-label="Filtrar pelo semáforo da ML">
@@ -813,7 +785,6 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [bell, setBell] = useState(false);
-  const [moving, setMoving] = useState<string | null>(null);
   const [details, setDetails] = useState<Card | null>(null);
   const [detailData, setDetailData] = useState<Detail>();
   const [detailError, setDetailError] = useState("");
@@ -824,7 +795,6 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
   const [dragging, setDragging] = useState<DragPayload | null>(null);
   const [over, setOver] = useState<Over>(null);
   const [history, setHistory] = useState(false);
-  const bellRef = useRef<HTMLDivElement>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const ghostRef = useRef<HTMLDivElement>(null);
   const [confirmAll, setConfirmAll] = useState(false);
@@ -834,11 +804,12 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [queue, setQueue] = useState<Queue>("");
   const [batchOpen, setBatchOpen] = useState(false);
-  const [groupBy, setGroupBy] = useState<GroupBy>("falha");
+  // Só a visão por falha (a visão por máquina foi retirada).
+  const groupBy = "falha" as GroupBy;
   const [extraClasses, setExtraClasses] = useState<string[]>([]);
   const [newFailure, setNewFailure] = useState<string | null>(null);
   const [newClass, setNewClass] = useState<{ card: string; value: string } | null>(null);
-  const [picker, setPicker] = useState<{ card: Card; rect: DOMRect } | null>(null);
+  const [picker, setPicker] = useState<{ card: Card; rect: DOMRect; release?: boolean } | null>(null);
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set());
   // Itens que acabaram de ser movidos/reclassificados continuam na tela mesmo com filtro ativo
   // (ex.: filtro "Confiáveis" + mudar a falha → o item vira "Analista" e sumiria do filtro).
@@ -891,21 +862,6 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
       active = false;
     };
   }, [id]);
-  useEffect(() => {
-    if (!bell) return;
-    const click = (e: PointerEvent) => {
-      if (!bellRef.current?.contains(e.target as Node)) setBell(false);
-    };
-    const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setBell(false);
-    };
-    document.addEventListener("pointerdown", click);
-    document.addEventListener("keydown", key);
-    return () => {
-      document.removeEventListener("pointerdown", click);
-      document.removeEventListener("keydown", key);
-    };
-  }, [bell]);
   async function act(action: string, fields: object = {}) {
     if (!board || busy) return false;
     setBusy(true);
@@ -988,6 +944,18 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
       if (groupBy === "falha") setOpenGroups((prev) => new Set(prev).add(`${dst.class}|${dst.column_id}`));
       focusColumn(groupBy === "falha" ? dst.class : dst.column_id, dst.id);
       notify({ text: `Agrupado em “${dst.name}”`, undo: true });
+    }
+  }
+
+  async function holdCard(card: Card) {
+    if (await act("hold", { card_id: card.id })) notify({ text: `“${card.name}” foi para o sino`, undo: true });
+  }
+  async function releaseCard(card: Card, validate: boolean, failureClass?: string) {
+    const fields: Record<string, unknown> = { card_id: card.id, validate };
+    if (failureClass !== undefined) fields.failure_class = failureClass;
+    if (await act("release", fields)) {
+      pin([card.id]);
+      notify({ text: `“${card.name}” voltou para o quadro${validate ? " validado" : ""}`, undo: true });
     }
   }
 
@@ -1098,9 +1066,9 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
   }
 
   // Referência estável para os handlers: cards memorizados não redesenham à toa.
-  const live = useRef({ act, showDetails, dropAt, groupBy, busy, stepHistory });
+  const live = useRef({ act, showDetails, dropAt, groupBy, busy, stepHistory, holdCard });
   useLayoutEffect(() => {
-    live.current = { act, showDetails, dropAt, groupBy, busy, stepHistory };
+    live.current = { act, showDetails, dropAt, groupBy, busy, stepHistory, holdCard };
   });
   // Ctrl+Z desfaz; Ctrl+Y (ou Ctrl+Shift+Z) refaz. Não atrapalha quem está digitando num campo.
   useEffect(() => {
@@ -1233,6 +1201,7 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
       validateCards: (cardIds) => {
         if (cardIds.length) void live.current.act("validate_cards", { card_ids: cardIds });
       },
+      hold: (card) => void live.current.holdCard(card),
       toggleGroup: (key) =>
         setOpenGroups((prev) => {
           const next = new Set(prev);
@@ -1291,57 +1260,16 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
           </p>
         </div>
         <div className="kb-head-actions">
-          <div className="notifications" ref={bellRef}>
-            <button
-              className={`kb-round ${bell ? "active" : ""}`}
-              aria-label={`Itens em revisão: ${held.length}`}
-              aria-expanded={bell}
-              title="Sino de revisão"
-              onClick={() => setBell(!bell)}
-            >
-              <Icon name="bell" size={18} />
-              {held.length > 0 && <span className="notification-badge">{held.length}</span>}
-            </button>
-            {bell && (
-              <div className="notification-menu">
-                <header>
-                  <h3>Itens em revisão</h3>
-                  <span>{held.length}</span>
-                </header>
-                <p>Escolha a coluna correta para cada card.</p>
-                <div className="notification-items">
-                  {held.length ? (
-                    held.map((c) => (
-                      <article key={c.id}>
-                        <b>{c.name}</b>
-                        <small>
-                          {fmt(c.count)} apontamentos · {fmt(c.minutes, 1)} min
-                        </small>
-                        <button className="text-btn" onClick={() => setMoving(moving === c.id ? null : c.id)}>
-                          Mover <Icon name="arrow" size={14} />
-                        </button>
-                        {moving === c.id && (
-                          <Move
-                            columns={board.columns}
-                            busy={busy}
-                            onMove={async (column_id) => {
-                              if (await act("move", { card_id: c.id, column_id })) setMoving(null);
-                            }}
-                          />
-                        )}
-                      </article>
-                    ))
-                  ) : (
-                    <div className="notification-empty">
-                      <Icon name="check" />
-                      <b>Tudo resolvido por aqui</b>
-                      <span>Use o sino de um card para revisá-lo depois.</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+          <button
+            className={`kb-round ${bell ? "active" : ""} ${held.length ? "has-items" : ""}`}
+            aria-label={`Sino de revisão: ${held.length} item(ns)`}
+            aria-expanded={bell}
+            title="Sino de revisão"
+            onClick={() => setBell(!bell)}
+          >
+            <Icon name="bell" size={18} />
+            {held.length > 0 && <span className="notification-badge">{held.length}</span>}
+          </button>
           <MoreMenu>
             <button type="button" role="menuitem" data-close onClick={() => setCatalogOpen(true)}>
               <Icon name="target" size={15} />
@@ -1394,29 +1322,6 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
             <Icon name="redo" size={16} />
           </button>
         </div>
-        <div className="kb-seg" role="radiogroup" aria-label="Agrupar colunas por">
-          {(
-            [
-              ["falha", "Por falha"],
-              ["maquina", "Por máquina"],
-            ] as const
-          ).map(([k, label]) => (
-            <button
-              key={k}
-              type="button"
-              role="radio"
-              aria-checked={groupBy === k}
-              className={groupBy === k ? "on" : ""}
-              onClick={() => {
-                setGroupBy(k);
-                setMoving(null);
-                boardRef.current?.scrollTo({ left: 0 });
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
         <label className="kb-search">
           <Icon name="search" size={15} />
           <input aria-label="Buscar no quadro" placeholder="Buscar máquina ou relato…" value={search} onChange={(e) => changeSearch(e.target.value)} />
@@ -1433,9 +1338,9 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
             <Icon name="close" size={12} />
           </button>
         )}
-        <span className="kb-hint">
+        <span className="kb-hint" title="Arraste para mover · solte em cima de um card para agrupar">
           <Icon name="grip" size={13} />
-          Arraste para mover · solte sobre um card para agrupar
+          Arraste para mover
         </span>
         <button
           className="kb-btn"
@@ -1449,6 +1354,28 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
           <i className="tone-ok" />
           Validar confiáveis ({fmt(board.automation.pending_high)})
         </button>
+      </div>
+      <div className="kb-legend" aria-label="Legenda das cores">
+        <span className="tone-ok">
+          <i />
+          <b>Verde</b> confiável
+        </span>
+        <span className="tone-warn">
+          <i />
+          <b>Amarelo</b> conferir
+        </span>
+        <span className="tone-bad">
+          <i />
+          <b>Vermelho</b> revisar
+        </span>
+        <span className="tone-man">
+          <i />
+          <b>Azul</b> alterado manualmente{board.automation.cards.manual ? ` (${fmt(board.automation.cards.manual)})` : ""}
+        </span>
+        <span className="tone-done">
+          <i />
+          <b>Cinza</b> validado
+        </span>
       </div>
       <BoardRail boardRef={boardRef} segments={segments} />
       <div className="kb-board" id="kanban-board" aria-label="Quadro de validação" ref={boardRef}>
@@ -1498,6 +1425,18 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
           <span>{groupBy === "falha" ? "Nova falha" : "Nova coluna"}</span>
         </button>
       </div>
+      {bell && (
+        <BellDrawer
+          held={held}
+          machines={machines}
+          busy={busy}
+          finished={Boolean(board.finished_at)}
+          onClose={() => setBell(false)}
+          onRelease={(c, validate) => void releaseCard(c, validate)}
+          onPick={(c, anchor) => setPicker({ card: c, rect: anchor.getBoundingClientRect(), release: true })}
+          onNote={(c, note) => void act("hold_note", { card_id: c.id, note })}
+        />
+      )}
       {dragging && over?.merge && <div className="kb-merge-hint">Soltar para agrupar</div>}
       {toast && (
         <div className="kb-toast" role="status">
@@ -1571,9 +1510,11 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
           onClose={() => setPicker(null)}
           onPick={(value) => {
             const cardId = picker.card.id;
+            const fromBell = picker.release;
             setPicker(null);
             pin([cardId]);
-            void act("set_class", { card_id: cardId, failure_class: value });
+            if (fromBell) void releaseCard(picker.card, true, value);
+            else void act("set_class", { card_id: cardId, failure_class: value });
           }}
           onNew={() => {
             setNewClass({ card: picker.card.id, value: "" });
@@ -1589,7 +1530,7 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
           <b>{board.ready ? "Tudo validado" : `${fmt(board.validated_count)} de ${fmt(board.groups_count)} validados`}</b>
           <small>
             {held.length
-              ? `${held.length} item(ns) no sino de revisão`
+              ? `${held.length} no sino · dá para finalizar; eles entram nos gráficos quando devolvidos`
               : pending
                 ? "Valide o que falta para liberar os gráficos."
                 : "Alterações salvas."}
@@ -1762,12 +1703,14 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
                 <span>apontamentos no total</span>
               </div>
             </div>
-            {held.length > 0 ? (
-              <div className="error-notice">
+            {held.length > 0 && (
+              <div className="info-notice">
                 <Icon name="bell" />
-                Há {held.length} item(ns) no sino de revisão. Escolha a coluna de cada um antes de confirmar tudo.
+                {held.length} item(ns) continuam no sino e não entram nesta confirmação. Devolva quando decidir — mesmo depois de
+                finalizar.
               </div>
-            ) : (
+            )}
+            {(
               <>
                 {board.unclassified_count > 0 && (
                   <div className="info-notice">
