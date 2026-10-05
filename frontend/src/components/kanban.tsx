@@ -13,14 +13,46 @@ import {
   type Board,
   type Card,
   type Column,
+  type Confidence,
   type Detail,
+  type SheetReport,
 } from "@/lib/radar";
-import { Icon, Modal, Loading, ErrorNotice, Heading } from "./ui";
+import { Icon, Modal, Loading, ErrorNotice } from "./ui";
 import CatalogEditor from "./catalog";
-import { AutomationSummary, ConfidenceBadge, MoreMenu, ReviewBar, SafeBatchModal, type GroupBy, type Queue } from "./automation";
+import { ConfidenceBadge, MoreMenu, SafeBatchModal, type GroupBy, type Queue } from "./automation";
 
 /** Coluna do quadro: uma máquina (visão por máquina) ou uma classe de falha (visão por falha). */
 type ViewColumn = Column & { context: string; kind: GroupBy; local?: boolean };
+
+/** Nome das ações no histórico, no Desfazer e nos avisos. */
+const ACTION_LABEL: Record<string, string> = {
+  validate_column: "Coluna validada",
+  validate_card: "Validação de card",
+  validate_all: "Todos os cards confirmados",
+  set_class: "Troca de falha",
+  set_classes: "Troca de falha em lote",
+  validate_cards: "Validação de vários cards",
+  validate_confident: "Lote de confiança alta",
+  hold: "Card enviado ao sino",
+  move: "Card movido",
+  add_column: "Coluna criada",
+  delete_column: "Coluna excluída",
+  rename_card: "Descrição editada",
+  split_card: "Registros desagrupados",
+  merge_cards: "Relatos agrupados",
+  reorder: "Ordem das caixas",
+  undo: "Ação desfeita",
+  redo: "Ação refeita",
+};
+
+/** Semáforo da machine learning: verde = confiável, amarelo = conferir, vermelho = revisar. */
+const TONE: Record<Confidence, string> = { alta: "ok", media: "warn", baixa: "bad", manual: "man" };
+const RANK: Record<string, number> = { baixa: 3, media: 2, manual: 1, alta: 0 };
+const LIGHTS: { key: Confidence; label: string; hint: string }[] = [
+  { key: "alta", label: "Confiáveis", hint: "A ML e o catálogo concordam. Pode validar em lote." },
+  { key: "media", label: "Conferir", hint: "A ML tem dúvida ou o relato cita mais de um item." },
+  { key: "baixa", label: "Revisar", hint: "Nem o catálogo nem a ML reconheceram. Precisa de você." },
+];
 
 function Move({
   columns,
@@ -34,11 +66,7 @@ function Move({
   const [target, setTarget] = useState("");
   return (
     <div className="move-form">
-      <select
-        aria-label="Coluna de destino"
-        value={target}
-        onChange={(e) => setTarget(e.target.value)}
-      >
+      <select aria-label="Coluna de destino" value={target} onChange={(e) => setTarget(e.target.value)}>
         <option value="">Escolher coluna…</option>
         {columns.map((c) => (
           <option key={c.id} value={c.id}>
@@ -47,276 +75,231 @@ function Move({
           </option>
         ))}
       </select>
-      <button
-        className="btn small primary"
-        disabled={!target || busy}
-        onClick={() => onMove(target)}
-      >
+      <button className="btn small primary" disabled={!target || busy} onClick={() => onMove(target)}>
         Mover card <Icon name="arrow" size={14} />
       </button>
     </div>
   );
 }
 
-/* ===================== Otimização do quadro =====================
-   O quadro pode ter centenas de cards. Para não travar:
-   - cada coluna e cada card só redesenham quando os próprios dados mudam (memo);
-   - a barra superior acompanha a rolagem sem redesenhar o quadro;
-   - o seletor de classe é um único menu compartilhado (não um <select> por card);
-   - o navegador pula o desenho do que está fora da tela (content-visibility). */
+/* ===================== Arrastar e soltar =====================
+   Arrasto próprio (eventos de ponteiro), sem o drag-and-drop nativo do navegador:
+   - o item só começa a arrastar depois de 6px (clique simples continua abrindo o card);
+   - uma linha vermelha mostra exatamente onde a caixa vai cair (em cima ou embaixo de outra);
+   - o quadro e a coluna rolam sozinhos perto das bordas;
+   - soltar fora de uma coluna cancela — o item volta para onde estava. */
+type DragPayload = { ids: string[]; box: string; from: string; label: string; tone: string; machine?: string };
+/** merge = id do card de destino quando o item é solto EM CIMA de outro card (agrupar). */
+type Over = { col: string; before: string | null; last: string | null; merge?: string } | null;
+
 type Handlers = {
   act: (action: string, fields?: object) => Promise<boolean>;
   details: (card: Card) => void;
-  toggleMove: (cardId: string) => void;
-  moveTo: (cardId: string, columnId: string, follow: boolean) => void;
   pickClass: (card: Card, anchor: HTMLElement) => void;
-  dragStart: (cardId: string) => void;
-  dragEnd: () => void;
-  dragOver: (columnId: string) => void;
-  dragLeave: () => void;
-  drop: (cardId: string, columnId: string) => void;
-  validateColumn: (columnId: string, cardIds: string[]) => void;
+  grab: (e: React.PointerEvent, payload: DragPayload) => void;
+  validateColumn: (columnId: string, cardIds: string[], filtered: boolean) => void;
   deleteColumn: (columnId: string) => void;
   validateCards: (cardIds: string[]) => void;
   toggleGroup: (key: string) => void;
 };
 const CARD_KEYS: (keyof Card)[] = ["id", "name", "validated", "held", "class", "failure_class", "count", "minutes", "column_id", "sample", "confidence", "reason", "events"];
 const sameCard = (a: Card, b: Card) => a === b || CARD_KEYS.every((k) => a[k] === b[k]);
+const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/** Aplica a ordem salva (em cima / embaixo); o que não tem posição salva mantém a ordem padrão, no fim. */
+function arrange<T>(items: T[], keyOf: (t: T) => string, saved?: string[]) {
+  if (!saved?.length) return items;
+  const pos = new Map(saved.map((k, i) => [k, i]));
+  return items
+    .map((item, i) => ({ item, i, p: pos.get(keyOf(item)) ?? Infinity }))
+    .sort((a, b) => a.p - b.p || a.i - b.i)
+    .map((x) => x.item);
+}
 
 const KanbanCard = memo(
   function KanbanCard({
     card,
-    index,
-    total,
-    prevId,
-    nextId,
     busy,
     dragging,
     flash,
-    moving,
-    moveColumns,
-    machine,
+    dropHere,
+    mergeHere,
     h,
   }: {
     card: Card;
-    machine: string;
-    index: number;
-    total: number;
-    prevId?: string;
-    nextId?: string;
     busy: boolean;
     dragging: boolean;
     flash: boolean;
-    moving: boolean;
-    moveColumns: ViewColumn[] | null;
+    dropHere: boolean;
+    mergeHere: boolean;
     h: Handlers;
   }) {
+    const tone = card.validated ? "done" : TONE[card.confidence];
     return (
       <article
+        data-box={card.id}
         data-card={card.id}
-        className={`kanban-card conf-${card.confidence} ${card.validated ? "card-validated" : ""} ${dragging ? "dragging" : ""} ${flash ? "flash" : ""}`}
-        draggable={!busy}
-        onDragStart={(e) => {
-          e.dataTransfer.setData("text/plain", card.id);
-          e.dataTransfer.effectAllowed = "move";
-          h.dragStart(card.id);
-        }}
-        onDragEnd={h.dragEnd}
+        className={`kb-box kb-card tone-${tone} ${dragging ? "is-dragging" : ""} ${flash ? "is-flash" : ""} ${dropHere ? "drop-before" : ""} ${mergeHere ? "is-merge-target" : ""}`}
+        data-machine={card.column_id}
+        onPointerDown={(e) =>
+          !busy && h.grab(e, { ids: [card.id], box: card.id, from: card.column_id, label: card.name, tone, machine: card.column_id })
+        }
       >
-        <div className="card-top">
-          {machine ? (
-            <span className="machine-chip" title={`Máquina: ${machine}`}>
-              <Icon name="machine" size={12} />
-              <span>{machine}</span>
-            </span>
-          ) : (
-          <button
-            type="button"
-            className={`class-chip ${card.class === SEM_MODO ? "warn" : card.class === SEM_DESCRICAO ? "muted" : ""} ${card.failure_class ? "manual" : ""}`}
-            title={card.failure_class ? "Classe definida manualmente · clique para trocar" : "Classe automática (coluna M) · clique para trocar"}
-            aria-label={`Classe de falha: ${prettyClass(card.class)}. Alterar`}
-            disabled={busy}
-            onClick={(e) => h.pickClass(card, e.currentTarget)}
-          >
-            <Icon name={card.failure_class ? "pencil" : "target"} size={12} />
-            <span>{prettyClass(card.class)}</span>
-          </button>
-          )}
-          <ConfidenceBadge card={card} />
-          <button
-            className="inspect-card icon-btn"
-            aria-label={`Enviar ${card.name} ao sino de revisão`}
-            title="Enviar para revisão no sino"
-            disabled={busy}
-            onClick={() => void h.act("hold", { card_id: card.id })}
-          >
-            <Icon name="search" size={16} />
-          </button>
-        </div>
-        <button className="card-title" onClick={() => h.details(card)}>
+        <button type="button" className="kb-title" onClick={() => h.details(card)} title="Conferir os apontamentos originais">
           {card.name}
         </button>
-        <p className="card-sample">{card.sample || "Sem observação na planilha."}</p>
-        <div className="card-meta">
-          <span title={`${fmt(card.count)} linha(s) do SAP formam ${fmt(card.events)} falha(s) real(is) (mesma O.S. = 1 falha)`}>
-            <Icon name="file" size={13} />
-            {card.events !== card.count
-              ? `${fmt(card.events)} ${card.events === 1 ? "falha" : "falhas"} · ${fmt(card.count)} linhas`
-              : `${fmt(card.count)} ${card.count === 1 ? "falha" : "falhas"}`}
-          </span>
-          <span>
-            <Icon name="clock" size={13} />
-            {fmt(card.minutes, 1)} min
-          </span>
-          <span className="meta-type">{card.types.join(" · ")}</span>
-        </div>
+        <button
+          type="button"
+          data-nodrag
+          className={`kb-class ${card.class === SEM_MODO ? "warn" : card.class === SEM_DESCRICAO ? "muted" : ""}`}
+          title={card.failure_class ? "Classe definida pelo analista · clique para trocar" : "Classe sugerida pela ML · clique para trocar"}
+          disabled={busy}
+          onClick={(e) => h.pickClass(card, e.currentTarget)}
+        >
+          {prettyClass(card.class)}
+        </button>
         <footer>
-          <div className="card-move">
+          <span className="kb-meta">
+            <ConfidenceBadge card={card} compact />
+            {fmt(card.events)} {card.events === 1 ? "falha" : "falhas"} · {fmt(card.minutes, 0)} min
+          </span>
+          <span className="kb-actions">
             <button
-              className="mini-arrow"
-              aria-label={`Mover ${card.name} para a coluna anterior`}
-              title={machine ? "Mudar para a falha da coluna anterior" : "Mover para a coluna anterior"}
-              disabled={busy || index === 0 || !prevId}
-              onClick={() => prevId && h.moveTo(card.id, prevId, true)}
+              type="button"
+              data-nodrag
+              className="kb-icon"
+              title="Enviar para revisão no sino"
+              aria-label={`Enviar ${card.name} ao sino de revisão`}
+              disabled={busy}
+              onClick={() => void h.act("hold", { card_id: card.id })}
             >
-              <Icon name="left" size={14} />
-            </button>
-            <button className="text-btn small" onClick={() => h.toggleMove(card.id)}>
-              Mover
-              <Icon name="chevron" size={12} />
+              <Icon name="bell" size={14} />
             </button>
             <button
-              className="mini-arrow"
-              aria-label={`Mover ${card.name} para a próxima coluna`}
-              title={machine ? "Mudar para a falha da próxima coluna" : "Mover para a próxima coluna"}
-              disabled={busy || index === total - 1 || !nextId}
-              onClick={() => nextId && h.moveTo(card.id, nextId, true)}
+              type="button"
+              data-nodrag
+              className={`kb-check ${card.validated ? "on" : ""}`}
+              title={card.validated ? "Desfazer validação" : "Validar"}
+              aria-label={`${card.validated ? "Desfazer validação" : "Validar"}: ${card.name}`}
+              disabled={busy}
+              onClick={() => void h.act("validate_card", { card_id: card.id })}
             >
-              <Icon name="right" size={14} />
+              <Icon name="check" size={14} />
             </button>
-          </div>
-          <button
-            className={`validate-card ${card.validated ? "complete" : ""}`}
-            title={card.validated ? "Desfazer validação" : "Validar card"}
-            aria-label={`${card.validated ? "Desfazer validação" : "Validar"}: ${card.name}`}
-            disabled={busy}
-            onClick={() => void h.act("validate_card", { card_id: card.id })}
-          >
-            <Icon name="check" size={13} />
-            {card.validated ? "Validado" : "Validar"}
-          </button>
+          </span>
         </footer>
-        {moving && moveColumns && (
-          <Move columns={moveColumns} busy={busy} onMove={(column_id) => h.moveTo(card.id, column_id, true)} />
-        )}
       </article>
     );
   },
   (a, b) =>
     sameCard(a.card, b.card) &&
-    a.machine === b.machine &&
-    a.index === b.index &&
-    a.total === b.total &&
-    a.prevId === b.prevId &&
-    a.nextId === b.nextId &&
     a.busy === b.busy &&
     a.dragging === b.dragging &&
     a.flash === b.flash &&
-    a.moving === b.moving &&
-    (!a.moving || a.moveColumns === b.moveColumns),
+    a.dropHere === b.dropHere &&
+    a.mergeHere === b.mergeHere,
 );
 
-/** Na visão por falha, os cards de uma mesma máquina ficam juntos em um único bloco. */
+/** Na visão por falha, os relatos de uma mesma máquina ficam juntos em um único bloco. */
 type MachineBucket = { key: string; name: string; line: string; cards: Card[]; minutes: number; events: number; pending: number };
-const CONF_RANK: Record<string, number> = { baixa: 3, media: 2, manual: 1, alta: 0 };
 
 const MachineGroup = memo(
   function MachineGroup({
     group,
+    column,
     open,
     busy,
     dragging,
+    dropHere,
+    mergeId,
     flashId,
     onToggle,
     h,
   }: {
     group: MachineBucket;
+    column: string;
     open: boolean;
     busy: boolean;
     dragging: boolean;
+    dropHere: boolean;
+    mergeId: string;
     flashId: string;
     onToggle: (key: string) => void;
     h: Handlers;
   }) {
     const done = group.pending === 0;
-    // A borda mostra o relato pendente que mais precisa de atenção.
     const worst = group.cards
       .filter((c) => !c.validated)
-      .reduce<string>((w, c) => (CONF_RANK[c.confidence] > (CONF_RANK[w] ?? -1) ? c.confidence : w), "");
+      .reduce<string>((w, c) => (RANK[c.confidence] > (RANK[w] ?? -1) ? c.confidence : w), "");
+    const tone = done ? "done" : TONE[worst as Confidence] || "ok";
     const ids = group.cards.map((c) => c.id);
     return (
       <article
-        className={`machine-group ${done ? "done" : `attn-${worst}`} ${dragging ? "dragging" : ""} ${ids.includes(flashId) ? "flash" : ""}`}
-        draggable={!busy}
-        onDragStart={(e) => {
-          const payload = `group:${ids.join(",")}`;
-          e.dataTransfer.setData("text/plain", payload);
-          e.dataTransfer.effectAllowed = "move";
-          h.dragStart(payload);
-        }}
-        onDragEnd={h.dragEnd}
+        data-box={group.key}
+        className={`kb-box kb-group tone-${tone} ${dragging ? "is-dragging" : ""} ${ids.includes(flashId) ? "is-flash" : ""} ${dropHere ? "drop-before" : ""}`}
+        onPointerDown={(e) => !busy && h.grab(e, { ids, box: group.key, from: column, label: group.name, tone })}
       >
-        <div className="mg-head">
-          <button type="button" className="mg-toggle" aria-expanded={open} onClick={() => onToggle(group.key)}>
-            <span className={`mg-chevron ${open ? "open" : ""}`}>
-              <Icon name="chevron" size={14} />
+        <div className="kb-group-head">
+          <button type="button" className="kb-group-toggle" aria-expanded={open} onClick={() => onToggle(group.key)}>
+            <span className={`kb-chev ${open ? "open" : ""}`}>
+              <Icon name="chevron" size={13} />
             </span>
-            <span className="mg-text">
+            <span className="kb-group-text">
               <b title={group.name}>{group.name}</b>
               <small>
-                {group.line} · {fmt(group.events)} {group.events === 1 ? "falha" : "falhas"} · {fmt(group.minutes, 0)} min
+                {group.line ? `${group.line} · ` : ""}
+                {fmt(group.events)} {group.events === 1 ? "falha" : "falhas"} · {fmt(group.minutes, 0)} min
               </small>
             </span>
           </button>
+          <span className="kb-count" title={`${group.cards.length} relato(s)`}>
+            {group.cards.length}
+          </span>
           <button
             type="button"
-            className={`mg-validate ${done ? "complete" : ""}`}
+            data-nodrag
+            className={`kb-check ${done ? "on" : ""}`}
             disabled={busy || done}
             title={done ? "Todos os relatos desta máquina estão validados" : `Validar ${group.pending} relato(s) desta máquina`}
             aria-label={done ? `${group.name}: validado` : `Validar ${group.name}`}
             onClick={() => h.validateCards(group.cards.filter((c) => !c.validated && !c.held).map((c) => c.id))}
           >
-            <Icon name="check" size={13} />
-            {done ? "OK" : "Validar"}
+            <Icon name="check" size={14} />
           </button>
         </div>
         {open && (
-          <ul className="mg-list">
+          <ul className="kb-items">
             {group.cards.map((card) => (
               <li
                 key={card.id}
                 data-card={card.id}
-                className={`mg-item conf-${card.confidence} ${card.validated ? "ok" : ""} ${flashId === card.id ? "flash" : ""}`}
-                draggable={!busy}
-                onDragStart={(e) => {
+                data-machine={card.column_id}
+                className={`kb-item tone-${card.validated ? "done" : TONE[card.confidence]} ${flashId === card.id ? "is-flash" : ""} ${mergeId === card.id ? "is-merge-target" : ""}`}
+                onPointerDown={(e) => {
                   e.stopPropagation();
-                  e.dataTransfer.setData("text/plain", card.id);
-                  e.dataTransfer.effectAllowed = "move";
-                  h.dragStart(card.id);
+                  if (!busy)
+                    h.grab(e, {
+                      ids: [card.id],
+                      box: group.key,
+                      from: column,
+                      label: card.name,
+                      tone: card.validated ? "done" : TONE[card.confidence],
+                      machine: card.column_id,
+                    });
                 }}
-                onDragEnd={h.dragEnd}
               >
-                <ConfidenceBadge card={card} compact />
-                <button type="button" className="mg-item-title" title="Conferir os apontamentos originais" onClick={() => h.details(card)}>
+                <i className="kb-dot" />
+                <button type="button" className="kb-item-title" title="Conferir os apontamentos originais" onClick={() => h.details(card)}>
                   {card.name}
                   <small>
                     {fmt(card.events)} {card.events === 1 ? "falha" : "falhas"} · {fmt(card.minutes, 0)} min
                   </small>
                 </button>
-                <span className="mg-item-actions">
+                <span className="kb-actions">
                   <button
                     type="button"
-                    className="icon-btn"
+                    data-nodrag
+                    className="kb-icon"
                     title="Trocar a falha deste relato"
                     aria-label={`Trocar a falha de ${card.name}`}
                     disabled={busy}
@@ -326,7 +309,8 @@ const MachineGroup = memo(
                   </button>
                   <button
                     type="button"
-                    className="icon-btn"
+                    data-nodrag
+                    className="kb-icon"
                     title="Enviar para revisão no sino"
                     aria-label={`Enviar ${card.name} ao sino de revisão`}
                     disabled={busy}
@@ -336,13 +320,14 @@ const MachineGroup = memo(
                   </button>
                   <button
                     type="button"
-                    className={`mg-check ${card.validated ? "complete" : ""}`}
+                    data-nodrag
+                    className={`kb-check small ${card.validated ? "on" : ""}`}
                     title={card.validated ? "Desfazer validação" : "Validar relato"}
                     aria-label={`${card.validated ? "Desfazer validação" : "Validar"}: ${card.name}`}
                     disabled={busy}
                     onClick={() => void h.act("validate_card", { card_id: card.id })}
                   >
-                    <Icon name="check" size={13} />
+                    <Icon name="check" size={12} />
                   </button>
                 </span>
               </li>
@@ -356,7 +341,10 @@ const MachineGroup = memo(
     a.open === b.open &&
     a.busy === b.busy &&
     a.dragging === b.dragging &&
+    a.dropHere === b.dropHere &&
+    a.mergeId === b.mergeId &&
     a.flashId === b.flashId &&
+    a.column === b.column &&
     a.onToggle === b.onToggle &&
     a.group.key === b.group.key &&
     a.group.name === b.group.name &&
@@ -387,138 +375,121 @@ function bucketsOf(cards: Card[], machines: Map<string, Column>): MachineBucket[
 const KanbanColumn = memo(
   function KanbanColumn({
     col,
-    index,
-    total,
-    prevId,
-    nextId,
     cards,
     allCount,
+    validatedCount,
+    order,
     busy,
-    canDrop,
-    over,
-    dragId,
+    dragBox,
+    drop,
+    mergeId,
     flashId,
-    movingId,
-    moveColumns,
-    machineOf,
     machines,
     openKeys,
     h,
   }: {
     col: ViewColumn;
-    machineOf: ((card: Card) => string) | null;
-    machines: Map<string, Column>;
-    openKeys: string;
-    index: number;
-    total: number;
-    prevId?: string;
-    nextId?: string;
     cards: Card[];
     allCount: number;
+    validatedCount: number;
+    order: string[];
     busy: boolean;
-    canDrop: boolean;
-    over: boolean;
-    dragId: string;
+    dragBox: string;
+    /** undefined = nada sendo solto aqui; null = no fim da coluna; id = em cima desta caixa. */
+    drop: string | null | undefined;
+    mergeId: string;
     flashId: string;
-    movingId: string;
-    moveColumns: ViewColumn[] | null;
+    machines: Map<string, Column>;
+    openKeys: string;
     h: Handlers;
   }) {
     const byClass = col.kind === "falha";
-    const buckets = useMemo(() => (byClass ? bucketsOf(cards, machines) : []), [byClass, cards, machines]);
+    const buckets = useMemo(
+      () => (byClass ? arrange(bucketsOf(cards, machines), (g) => g.key, order) : []),
+      [byClass, cards, machines, order],
+    );
+    const list = useMemo(() => (byClass ? [] : arrange(cards, (c) => c.id, order)), [byClass, cards, order]);
     const open = useMemo(() => new Set(openKeys ? openKeys.split("\n") : []), [openKeys]);
     const toggle = useCallback((key: string) => h.toggleGroup(`${col.id}|${key}`), [h, col.id]);
-    const minutes = byClass ? cards.reduce((n, c) => n + c.minutes, 0) : 0;
+    const pct = allCount ? (validatedCount / allCount) * 100 : 0;
+    // O botão valida o que está pendente NA TELA (respeita o filtro do semáforo e a busca).
+    const pendingIds = cards.filter((c) => !c.validated && !c.held).map((c) => c.id);
+    const doneInView = !pendingIds.length;
+    const minutes = cards.reduce((n, c) => n + c.minutes, 0);
     return (
       <section
         data-column={col.id}
-        className={`kanban-column ${byClass ? "by-class" : ""} ${col.validated ? "validated" : ""} ${over ? "drag-over" : ""}`}
-        onDragOver={(e) => {
-          if (canDrop && !busy) {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = "move";
-            h.dragOver(col.id);
-          }
-        }}
-        onDragLeave={(e) => {
-          if (!e.currentTarget.contains(e.relatedTarget as Node)) h.dragLeave();
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          h.drop(e.dataTransfer.getData("text/plain"), col.id);
-        }}
+        className={`kb-col ${col.validated ? "is-done" : ""} ${drop !== undefined ? "is-over" : ""} ${drop === null ? "drop-end" : ""}`}
       >
-        <header className="column-head">
-          <div>
-            {byClass ? (
-              <>
-                <h2 title={col.name}>{col.name}</h2>
-                <span className="column-context">
-                  {allCount ? `${fmt(buckets.length)} equipamento(s) · ${fmt(minutes, 0)} min` : col.context}
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="column-context">{col.context}</span>
-                <h2>
-                  {col.name}
-                  <span>{allCount}</span>
-                </h2>
-              </>
-            )}
+        <header className="kb-col-head">
+          <div className="kb-col-title">
+            <h2 title={col.name}>{col.name}</h2>
+            <span>
+              {byClass
+                ? allCount
+                  ? `${fmt(buckets.length)} máquina(s) · ${fmt(minutes, 0)} min`
+                  : col.context
+                : col.context}
+            </span>
           </div>
-          {!allCount && (!byClass || col.local) && (
+          <span className="kb-count">{fmt(allCount)}</span>
+          {!allCount && (!byClass || col.local) ? (
+            <button className="kb-icon" aria-label={`Excluir coluna ${col.name}`} title="Excluir coluna vazia" disabled={busy} onClick={() => h.deleteColumn(col.id)}>
+              <Icon name="trash" size={14} />
+            </button>
+          ) : (
             <button
-              className="icon-btn delete-column"
-              aria-label={`Excluir coluna ${col.name}`}
-              disabled={busy}
-              onClick={() => h.deleteColumn(col.id)}
+              className={`kb-check ${doneInView ? "on" : ""}`}
+              disabled={busy || doneInView}
+              title={
+                doneInView
+                  ? col.validated
+                    ? "Coluna validada"
+                    : "Tudo o que está na tela já foi validado"
+                  : `Validar ${pendingIds.length} item(ns) pendente(s) desta coluna`
+              }
+              aria-label={doneInView ? `${col.name}: validada` : `Validar ${col.name}`}
+              onClick={() => h.validateColumn(col.id, pendingIds, cards.length !== allCount)}
             >
-              <Icon name="trash" size={16} />
+              <Icon name="check" size={14} />
             </button>
           )}
         </header>
-        <button
-          className={`validate-column ${col.validated ? "complete" : ""}`}
-          disabled={busy || col.validated || !allCount}
-          onClick={() => h.validateColumn(col.id, cards.filter((c) => !c.validated).map((c) => c.id))}
-        >
-          <Icon name={col.validated ? "shield" : "check"} size={16} />
-          {col.validated ? (byClass ? "Falha validada" : "Coluna validada") : byClass ? "Validar esta falha" : "Validar coluna inteira"}
-        </button>
-        <div className="column-cards">
+        <div className="kb-col-progress" aria-label={`${Math.round(pct)}% validado`}>
+          <i style={{ width: `${pct}%` }} />
+        </div>
+        <div className="kb-col-body">
           {byClass &&
             buckets.map((g) => (
               <MachineGroup
                 key={g.key}
                 group={g}
+                column={col.id}
                 open={open.has(`${col.id}|${g.key}`)}
                 busy={busy}
-                dragging={dragId === `group:${g.cards.map((c) => c.id).join(",")}`}
+                dragging={dragBox === g.key}
+                dropHere={drop === g.key}
+                mergeId={mergeId}
                 flashId={flashId}
                 onToggle={toggle}
                 h={h}
               />
             ))}
-          {!byClass && cards.map((card) => (
-            <KanbanCard
-              key={card.id}
-              card={card}
-              index={index}
-              total={total}
-              prevId={prevId}
-              nextId={nextId}
-              busy={busy}
-              dragging={dragId === card.id}
-              flash={flashId === card.id}
-              moving={movingId === card.id}
-              moveColumns={movingId === card.id ? moveColumns : null}
-              machine={machineOf ? machineOf(card) : ""}
-              h={h}
-            />
-          ))}
+          {!byClass &&
+            list.map((card) => (
+              <KanbanCard
+                key={card.id}
+                card={card}
+                busy={busy}
+                dragging={dragBox === card.id}
+                flash={flashId === card.id}
+                dropHere={drop === card.id}
+                mergeHere={mergeId === card.id}
+                h={h}
+              />
+            ))}
           {!cards.length && (
-            <div className="column-empty">{allCount ? "Nenhum card corresponde à busca." : "Arraste um card para cá."}</div>
+            <div className="kb-empty">{allCount ? "Nada neste filtro." : "Solte um item aqui."}</div>
           )}
         </div>
       </section>
@@ -526,30 +497,22 @@ const KanbanColumn = memo(
   },
   (a, b) =>
     (a.col === b.col ||
-      (a.col.id === b.col.id &&
-        a.col.validated === b.col.validated &&
-        a.col.name === b.col.name &&
-        a.col.context === b.col.context)) &&
-      a.machineOf === b.machineOf &&
-      a.machines === b.machines &&
-      a.openKeys === b.openKeys &&
-      a.index === b.index &&
-      a.total === b.total &&
-      a.prevId === b.prevId &&
-      a.nextId === b.nextId &&
-      a.allCount === b.allCount &&
-      a.busy === b.busy &&
-      a.canDrop === b.canDrop &&
-      a.over === b.over &&
-      a.dragId === b.dragId &&
-      a.flashId === b.flashId &&
-      a.movingId === b.movingId &&
-      a.moveColumns === b.moveColumns &&
-      a.cards.length === b.cards.length &&
-      a.cards.every((c, i) => sameCard(c, b.cards[i])),
+      (a.col.id === b.col.id && a.col.validated === b.col.validated && a.col.name === b.col.name && a.col.context === b.col.context)) &&
+    a.machines === b.machines &&
+    a.openKeys === b.openKeys &&
+    a.allCount === b.allCount &&
+    a.validatedCount === b.validatedCount &&
+    a.busy === b.busy &&
+    a.dragBox === b.dragBox &&
+    a.drop === b.drop &&
+    a.mergeId === b.mergeId &&
+    a.flashId === b.flashId &&
+    a.order === b.order &&
+    a.cards.length === b.cards.length &&
+    a.cards.every((c, i) => sameCard(c, b.cards[i])),
 );
 
-/** Barra superior arrastável: acompanha a rolagem sem redesenhar o quadro. */
+/** Barrinha de cima: arraste para rolar o quadro na horizontal (cada risco é uma coluna). */
 function BoardRail({
   boardRef,
   segments,
@@ -558,6 +521,7 @@ function BoardRail({
   segments: { id: string; label: string; state: string }[];
 }) {
   const railRef = useRef<HTMLDivElement>(null);
+  const grab = useRef(0);
   const [s, setS] = useState({ left: 0, width: 1, client: 1 });
   useEffect(() => {
     const el = boardRef.current;
@@ -579,74 +543,74 @@ function BoardRail({
     window.addEventListener("resize", onScroll);
     const ro = new ResizeObserver(onScroll);
     ro.observe(el);
+    const mo = new MutationObserver(onScroll);
+    mo.observe(el, { childList: true });
     return () => {
       el.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
       ro.disconnect();
+      mo.disconnect();
       if (frame) cancelAnimationFrame(frame);
     };
-  }, [boardRef, segments.length]);
-  const step = (dir: number) => boardRef.current?.scrollBy({ left: dir * 316, behavior: "smooth" });
+  }, [boardRef]);
+  const thumbPct = Math.min(100, (s.client / Math.max(s.width, 1)) * 100);
+  const leftPct = (s.left / Math.max(s.width, 1)) * 100;
+  const scrollable = s.width > s.client + 2;
+  const step = (dir: number) => boardRef.current?.scrollBy({ left: dir * 304, behavior: "smooth" });
   const drag = (clientX: number) => {
     const rail = railRef.current,
       el = boardRef.current;
     if (!rail || !el) return;
     const r = rail.getBoundingClientRect();
-    const ratio = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
-    el.scrollLeft = ratio * el.scrollWidth - el.clientWidth / 2;
+    el.scrollLeft = ((clientX - grab.current - r.left) / r.width) * el.scrollWidth;
   };
   return (
-    <div className="board-nav">
-      <button className="nav-arrow" aria-label="Rolar quadro para a esquerda" disabled={s.left <= 2} onClick={() => step(-1)}>
-        <Icon name="left" size={18} />
+    <div className={`kb-rail-wrap ${scrollable ? "" : "static"}`}>
+      <button className="kb-icon" aria-label="Rolar quadro para a esquerda" disabled={s.left <= 2} onClick={() => step(-1)}>
+        <Icon name="left" size={16} />
       </button>
       <div
-        className="board-rail"
+        className="kb-rail"
         ref={railRef}
         role="scrollbar"
         aria-controls="kanban-board"
         aria-orientation="horizontal"
         aria-valuenow={Math.round((s.left / Math.max(s.width - s.client, 1)) * 100)}
-        aria-label="Barra de navegação do quadro: arraste para rolar"
+        aria-label="Arraste para rolar o quadro"
         tabIndex={0}
         onKeyDown={(e) => {
           if (e.key === "ArrowRight") step(1);
           if (e.key === "ArrowLeft") step(-1);
         }}
         onPointerDown={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          const thumbW = (r.width * thumbPct) / 100,
+            thumbL = r.left + (r.width * leftPct) / 100;
+          // Pegou na alça: mantém o ponto pego. Clicou fora: centraliza a alça no ponteiro.
+          grab.current = e.clientX >= thumbL && e.clientX <= thumbL + thumbW ? e.clientX - thumbL : thumbW / 2;
           e.currentTarget.setPointerCapture(e.pointerId);
-          e.currentTarget.classList.add("dragging");
+          e.currentTarget.classList.add("is-dragging");
           drag(e.clientX);
         }}
         onPointerMove={(e) => {
           if (e.currentTarget.hasPointerCapture(e.pointerId)) drag(e.clientX);
         }}
-        onPointerUp={(e) => e.currentTarget.classList.remove("dragging")}
+        onPointerUp={(e) => e.currentTarget.classList.remove("is-dragging")}
+        onPointerCancel={(e) => e.currentTarget.classList.remove("is-dragging")}
       >
-        <div className="rail-segments">
+        <div className="kb-rail-segments">
           {segments.map((c) => (
             <span key={c.id} className={c.state} title={c.label} />
           ))}
         </div>
-        <span
-          className="rail-thumb"
-          style={{
-            transform: `translateX(${(s.left / s.client) * 100}%)`,
-            width: `${Math.min(100, (s.client / s.width) * 100)}%`,
-          }}
-        >
-          <Icon name="grip" size={14} />
+        <span className="kb-rail-thumb" style={{ left: `${leftPct}%`, width: `${thumbPct}%` }}>
+          <Icon name="grip" size={13} />
         </span>
       </div>
-      <button
-        className="nav-arrow"
-        aria-label="Rolar quadro para a direita"
-        disabled={s.left + s.client >= s.width - 2}
-        onClick={() => step(1)}
-      >
-        <Icon name="right" size={18} />
+      <button className="kb-icon" aria-label="Rolar quadro para a direita" disabled={s.left + s.client >= s.width - 2} onClick={() => step(1)}>
+        <Icon name="right" size={16} />
       </button>
-      <span className="nav-count">{segments.length} colunas</span>
+      <span className="kb-rail-count">{segments.length} colunas</span>
     </div>
   );
 }
@@ -676,7 +640,9 @@ function ClassPicker({
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
-    const scroll = () => onClose();
+    const scroll = (e: Event) => {
+      if (!ref.current?.contains(e.target as Node)) onClose();
+    };
     document.addEventListener("pointerdown", down);
     document.addEventListener("keydown", key);
     window.addEventListener("scroll", scroll, true);
@@ -695,7 +661,7 @@ function ClassPicker({
       <div className="class-picker-list">
         <button type="button" className={!card.failure_class ? "on" : ""} onClick={() => onPick("")}>
           <Icon name="target" size={12} />
-          Automática · {prettyClass(card.auto_class)}
+          Sugestão da ML · {prettyClass(card.auto_class)}
         </button>
         {list.map((c) => (
           <button type="button" key={c} className={card.failure_class === c ? "on" : ""} onClick={() => onPick(c)}>
@@ -712,13 +678,144 @@ function ClassPicker({
   );
 }
 
-export default function Kanban({
-  id,
-  onUpdate,
+/** Mini gráfico da evolução do acerto a cada treino. */
+function Sparkline({ values }: { values: number[] }) {
+  const w = 168,
+    h = 46,
+    pad = 4;
+  const min = Math.max(0, Math.min(...values) - 3),
+    max = Math.min(100, Math.max(...values) + 3);
+  const x = (i: number) => pad + (i * (w - pad * 2)) / Math.max(values.length - 1, 1);
+  const y = (v: number) => h - pad - ((v - min) / Math.max(max - min, 1)) * (h - pad * 2);
+  const pts = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+  const last = values.length - 1;
+  return (
+    <svg className="kb-spark" viewBox={`0 0 ${w} ${h}`} width={w} height={h} role="img" aria-label={`Acerto nos últimos ${values.length} treinos`}>
+      <path className="area" d={`M${x(0)},${h - pad} L${pts.join(" L")} L${x(last)},${h - pad} Z`} />
+      <polyline className="line" points={pts.join(" ")} />
+      <circle cx={x(last)} cy={y(values[last])} r="3.5" />
+    </svg>
+  );
+}
+
+/** Painel do topo: a ML já filtrou tudo — quanto acerta, como evolui e o semáforo verde/amarelo/vermelho. */
+function MlPanel({
+  board,
+  queue,
+  onQueue,
+  onTrain,
+  training,
 }: {
-  id: string;
-  onUpdate: () => void;
+  board: Board;
+  queue: Queue;
+  onQueue: (q: Queue) => void;
+  onTrain: () => void;
+  training: boolean;
 }) {
+  const a = board.automation;
+  const l = a.learning;
+  const total = Object.values(a.records).reduce((n, v) => n + v, 0) || 1;
+  // Dois números, os dois MEDIDOS (nunca "100%" com dois cards validados):
+  // - acerto por planilha: ao finalizar, compara a classe que a ML sugeriu na chegada com a final do analista;
+  // - acerto do modelo: treina com 80% dos relatos de planilhas finalizadas e testa nos 20% que não viu.
+  const sheets = l?.sheets || [];
+  const last = sheets.at(-1);
+  const curve = sheets.map((x) => x.hit_rate);
+  const delta = curve.length >= 2 ? curve[curve.length - 1] - curve[curve.length - 2] : null;
+  const isThis = last?.id === board.id;
+  const measured = l?.accuracy ?? null;
+  const need = l?.measure_min || 60;
+  const records = board.cards.reduce((n, c) => n + c.count, 0) || 1;
+  const fromPast = board.cards.filter((c) => c.source === "memoria" || c.source === "aprendizado").reduce((n, c) => n + c.count, 0);
+  const tone = (v: number) => (v >= 85 ? "ok" : v >= 70 ? "warn" : "bad");
+  const trainedAt = l?.trained_at ? new Date(l.trained_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "";
+  return (
+    <section className="kb-ml" aria-label="Filtragem automática pela machine learning">
+      <div className="kb-ml-score">
+        <span className="kb-ml-badge">
+          <Icon name="check" size={13} />
+          Falhas já filtradas pela Machine Learning
+        </span>
+        <div className="kb-ml-main">
+          {last ? (
+            <div>
+              <strong className={`tone-${tone(last.hit_rate)}`}>{fmt(last.hit_rate, 1)}%</strong>
+              <span title="Apontamentos em que a classe sugerida pela ML na chegada da planilha foi mantida pelo analista">
+                de acerto {isThis ? "nesta planilha" : "na última planilha finalizada"}
+              </span>
+            </div>
+          ) : (
+            <div className="kb-ml-calib">
+              <strong>Aprendendo</strong>
+              <span>A ML aprende quando você finaliza a planilha em “Ver análises”.</span>
+            </div>
+          )}
+          {curve.length >= 2 ? (
+            <div className="kb-ml-trend">
+              <Sparkline values={curve} />
+              <small>
+                {delta != null && (
+                  <b className={delta >= 0 ? "up" : "down"}>
+                    {delta >= 0 ? "▲" : "▼"} {fmt(Math.abs(delta), 1)} pts
+                  </b>
+                )}
+                {` · ${fmt(curve[0], 0)}% → ${fmt(curve[curve.length - 1], 0)}% em ${curve.length} planilhas`}
+              </small>
+            </div>
+          ) : (
+            <div className="kb-ml-trend empty">
+              <small>
+                {last ? "A curva de evolução aparece a partir da 2ª planilha finalizada." : `${fmt(sheets.length)} planilha(s) finalizada(s) até agora.`}
+              </small>
+            </div>
+          )}
+        </div>
+        <p className="kb-ml-foot">
+          {fromPast > 0
+            ? `${fmt((fromPast / records) * 100, 0)}% desta planilha já chegou classificada pelo que a ML aprendeu`
+            : `${fmt(a.auto_rate, 1)}% dos apontamentos classificados sozinhos`}
+          {measured != null
+            ? ` · modelo: ${fmt(measured, 1)}% de acerto (${fmt(l?.examples || 0)} exemplos)`
+            : ` · modelo: ${fmt(Math.min(l?.examples || 0, need))}/${fmt(need)} exemplos para medir`}
+          {trainedAt ? ` · treino ${trainedAt}` : ""}
+          <button type="button" className="kb-link" disabled={training} onClick={onTrain}>
+            <Icon name="refresh" size={12} />
+            {training ? "Treinando…" : "Treinar"}
+          </button>
+        </p>
+      </div>
+      <div className="kb-lights" role="radiogroup" aria-label="Filtrar pelo semáforo da ML">
+        {LIGHTS.map(({ key, label, hint }) => {
+          const share = (a.records[key] / total) * 100;
+          const on = queue === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              className={`kb-light tone-${TONE[key]} ${on ? "on" : ""} ${queue && !on ? "dim" : ""}`}
+              title={`${hint} Clique para filtrar.`}
+              onClick={() => onQueue(on ? "" : key)}
+            >
+              <span className="kb-light-top">
+                <i />
+                {label}
+              </span>
+              <strong>{fmt(a.cards[key])}</strong>
+              <span className="kb-light-bar">
+                <i style={{ width: `${Math.max(share, a.records[key] ? 2 : 0)}%` }} />
+              </span>
+              <small>{fmt(share, 0)}% dos apontamentos</small>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => void }) {
   const [board, setBoard] = useState<Board>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -732,11 +829,12 @@ export default function Kanban({
   const [rename, setRename] = useState("");
   const [adding, setAdding] = useState(false);
   const [newCol, setNewCol] = useState({ name: "", unit: "", line: "" });
-  const [drag, setDrag] = useState("");
-  const [over, setOver] = useState("");
+  const [dragging, setDragging] = useState<DragPayload | null>(null);
+  const [over, setOver] = useState<Over>(null);
   const [history, setHistory] = useState(false);
   const bellRef = useRef<HTMLDivElement>(null);
   const boardRef = useRef<HTMLDivElement>(null);
+  const ghostRef = useRef<HTMLDivElement>(null);
   const [confirmAll, setConfirmAll] = useState(false);
   const [checked, setChecked] = useState(false);
   const [typed, setTyped] = useState("");
@@ -751,15 +849,33 @@ export default function Kanban({
   const [newClass, setNewClass] = useState<{ card: string; value: string } | null>(null);
   const [picker, setPicker] = useState<{ card: Card; rect: DOMRect } | null>(null);
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set());
+  // Itens que acabaram de ser movidos/reclassificados continuam na tela mesmo com filtro ativo
+  // (ex.: filtro "Confiáveis" + mudar a falha → o item vira "Analista" e sumiria do filtro).
+  const [finishing, setFinishing] = useState(false);
+  const [mergeAsk, setMergeAsk] = useState<{ src: Card; dst: Card } | null>(null);
+  const [toast, setToast] = useState<{ text: string; undo?: boolean; redo?: boolean } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const notify = useCallback((t: { text: string; undo?: boolean; redo?: boolean }) => {
+    setToast(t);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 7000);
+  }, []);
+  const [learned, setLearned] = useState<SheetReport | null>(null);
+  const [pinned, setPinned] = useState<Set<string>>(() => new Set());
+  const pin = useCallback((ids: string[]) => setPinned((prev) => new Set([...prev, ...ids])), []);
   const deferredSearch = useDeferredValue(search);
   const focusColumn = useCallback((columnId: string, cardId?: string) => {
     requestAnimationFrame(() => {
       document
         .querySelector(`[data-column="${CSS.escape(columnId)}"]`)
-        ?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+        ?.scrollIntoView({ behavior: "smooth", inline: "nearest", block: "nearest" });
       if (cardId) {
         setFlash(cardId);
         setTimeout(() => setFlash(""), 1400);
+        setTimeout(
+          () => document.querySelector(`[data-card="${CSS.escape(cardId)}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
+          60,
+        );
       }
     });
   }, []);
@@ -810,7 +926,7 @@ export default function Kanban({
         body: JSON.stringify({ action, revision: board.revision, ...fields }),
       });
       setBoard(next);
-      onUpdate();
+      if (action !== "reorder") onUpdate();
       return true;
     } catch (e) {
       setError((e as Error).message);
@@ -834,13 +950,8 @@ export default function Kanban({
     if (!details || !detailData) return;
     setDetailBusy(true);
     try {
-      const next = await api<Detail>(
-        `/analyses/${id}/cards/${details.id}?page=${detailData.page + 1}`,
-      );
-      setDetailData({
-        ...next,
-        records: [...detailData.records, ...next.records],
-      });
+      const next = await api<Detail>(`/analyses/${id}/cards/${details.id}?page=${detailData.page + 1}`);
+      setDetailData({ ...next, records: [...detailData.records, ...next.records] });
     } catch (e) {
       setDetailError((e as Error).message);
     } finally {
@@ -849,85 +960,46 @@ export default function Kanban({
   }
   async function finish() {
     setBusy(true);
+    setFinishing(true);
     setError("");
     try {
-      await api(`/analyses/${id}/finish`, { method: "POST" });
-      navigate({ view: "analise", id });
+      // Finalizar = a ML treina com esta planilha e mede quanto acertou nela.
+      const r = await api<{ ready: boolean; learning?: SheetReport }>(`/analyses/${id}/finish`, { method: "POST" });
+      onUpdate();
+      if (r.learning) setLearned(r.learning);
+      else navigate({ view: "analise", id });
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
+      setFinishing(false);
     }
   }
-  // Referência estável para os handlers: cards memorizados não redesenham à toa.
-  const live = useRef({ act, showDetails, focusColumn, board, drag, setMoving, moving, groupBy });
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- atualiza a referência a cada render, de propósito
-  useLayoutEffect(() => {
-    live.current = { act, showDetails, focusColumn, board, drag, setMoving, moving, groupBy };
-  });
-  const h = useMemo<Handlers>(
-    () => ({
-      act: (action, fields) => live.current.act(action, fields),
-      details: (card) => void live.current.showDetails(card),
-      toggleMove: (cardId) => live.current.setMoving((m) => (m === cardId ? null : cardId)),
-      moveTo: async (cardId, columnId, follow) => {
-        if (await live.current.act(...moveAction(cardId, columnId))) {
-          live.current.setMoving(null);
-          if (follow) live.current.focusColumn(columnId, cardId);
-        }
-      },
-      pickClass: (card, anchor) => setPicker({ card, rect: anchor.getBoundingClientRect() }),
-      dragStart: (cardId) => setDrag(cardId),
-      dragEnd: () => {
-        setDrag("");
-        setOver("");
-      },
-      dragOver: (columnId) => setOver(columnId),
-      dragLeave: () => setOver(""),
-      drop: (cardId, columnId) => {
-        if (cardId.startsWith("group:")) {
-          // Bloco de uma máquina: todos os relatos dela passam para a falha da coluna de destino.
-          const ids = new Set(cardId.slice(6).split(","));
-          const items = (live.current.board?.cards || [])
-            .filter((c) => ids.has(c.id) && c.class !== columnId)
-            .map((c) => ({ card_id: c.id, failure_class: columnId }));
-          if (live.current.groupBy === "falha" && items.length) void live.current.act("set_classes", { items });
-          setDrag("");
-          setOver("");
-          return;
-        }
-        const card = live.current.board?.cards.find((c) => c.id === cardId);
-        const current = card && (live.current.groupBy === "falha" ? card.class : card.column_id);
-        if (card && current !== columnId) void live.current.act(...moveAction(cardId, columnId));
-        setDrag("");
-        setOver("");
-      },
-      validateColumn: (columnId, cardIds) => {
-        if (live.current.groupBy === "falha") void live.current.act("validate_cards", { card_ids: cardIds });
-        else void live.current.act("validate_column", { column_id: columnId });
-      },
-      deleteColumn: (columnId) => {
-        if (live.current.groupBy === "falha") setExtraClasses((list) => list.filter((c) => c !== columnId));
-        else void live.current.act("delete_column", { column_id: columnId });
-      },
-      validateCards: (cardIds) => {
-        if (cardIds.length) void live.current.act("validate_cards", { card_ids: cardIds });
-      },
-      toggleGroup: (key) =>
-        setOpenGroups((prev) => {
-          const next = new Set(prev);
-          if (!next.delete(key)) next.add(key);
-          return next;
-        }),
-    }),
-    [],
-  );
-  /** Na visão por falha, mover um card para outra coluna = trocar a classe de falha. */
-  function moveAction(cardId: string, columnId: string): [string, object] {
-    if (live.current.groupBy !== "falha") return ["move", { card_id: cardId, column_id: columnId }];
-    const card = live.current.board?.cards.find((c) => c.id === cardId);
-    return ["set_class", { card_id: cardId, failure_class: card && card.auto_class === columnId ? "" : columnId }];
+
+  async function stepHistory(kind: "undo" | "redo") {
+    const step = board?.[kind];
+    if (!step || busy) return;
+    if (await act(kind)) {
+      setPinned(new Set());
+      notify({
+        text: `${kind === "undo" ? "Desfeito" : "Refeito"}: ${ACTION_LABEL[step.action] || step.action}${step.card ? ` · ${step.card}` : ""}`,
+        undo: kind === "redo",
+        redo: kind === "undo",
+      });
+    }
   }
+  async function confirmMerge() {
+    if (!mergeAsk) return;
+    const { src, dst } = mergeAsk;
+    if (await act("merge_cards", { card_id: src.id, target_id: dst.id })) {
+      setMergeAsk(null);
+      pin([dst.id]);
+      if (groupBy === "falha") setOpenGroups((prev) => new Set(prev).add(`${dst.class}|${dst.column_id}`));
+      focusColumn(groupBy === "falha" ? dst.class : dst.column_id, dst.id);
+      notify({ text: `Agrupado em “${dst.name}”`, undo: true });
+    }
+  }
+
   const byColumn = useMemo(() => {
     const map = new Map<string, Card[]>();
     for (const c of board?.cards || []) {
@@ -947,6 +1019,20 @@ export default function Kanban({
     },
     [machines],
   );
+  /** Ordem completa (sem filtro) das caixas de cada coluna, já com a ordem manual salva. */
+  const boxOrder = useMemo(() => {
+    const out = new Map<string, string[]>();
+    const saved = board?.layout || {};
+    for (const [col, cards] of byColumn) {
+      const key = `${groupBy}:${col}`;
+      const keys =
+        groupBy === "falha"
+          ? arrange(bucketsOf(cards, machines), (g) => g.key, saved[key]).map((g) => g.key)
+          : arrange(cards, (c) => c.id, saved[key]).map((c) => c.id);
+      out.set(col, keys);
+    }
+    return out;
+  }, [board, byColumn, groupBy, machines]);
   const viewColumns = useMemo<ViewColumn[]>(() => {
     if (!board) return [];
     if (groupBy === "maquina")
@@ -972,26 +1058,220 @@ export default function Kanban({
         kind: "falha" as const,
         local: !list.length,
         validated: list.length > 0 && list.every((c) => c.validated),
-        context: list.length ? `${fmt(nMachines)} máquina(s) · ${fmt(minutes.get(k) || 0)} min` : "Classe nova · arraste cards para cá",
+        context: list.length ? `${fmt(nMachines)} máquina(s) · ${fmt(minutes.get(k) || 0)} min` : "Classe nova · solte itens aqui",
       };
     });
   }, [board, groupBy, byColumn, extraClasses]);
+
+  /** Solta o item: na mesma coluna só muda a ordem; em outra coluna muda a falha (ou a máquina) e já posiciona. */
+  async function dropAt(payload: DragPayload, target: NonNullable<Over>) {
+    if (target.merge) {
+      // Agrupar pede confirmação antes (e dá para desfazer depois com Ctrl+Z).
+      const src = board?.cards.find((c) => c.id === payload.ids[0]);
+      const dst = board?.cards.find((c) => c.id === target.merge);
+      if (src && dst) setMergeAsk({ src, dst });
+      return;
+    }
+    const col = target.col;
+    const full = boxOrder.get(col) || [];
+    const list = full.filter((k) => k !== payload.box);
+    let at = target.before ? list.indexOf(target.before) : -1;
+    if (at < 0) {
+      const last = target.last ? list.indexOf(target.last) : -1;
+      at = last >= 0 ? last + 1 : list.length;
+    }
+    list.splice(at, 0, payload.box);
+    const layout = { key: `${groupBy}:${col}`, ids: list };
+    if (col === payload.from) {
+      if (!sameList(list, full)) await act("reorder", { layout });
+      return;
+    }
+    let ok = false;
+    if (groupBy === "maquina") ok = await act("move", { card_id: payload.ids[0], column_id: col, layout });
+    else if (payload.ids.length === 1) {
+      const card = board?.cards.find((c) => c.id === payload.ids[0]);
+      ok = await act("set_class", { card_id: payload.ids[0], failure_class: card && card.auto_class === col ? "" : col, layout });
+    } else {
+      const ids = new Set(payload.ids);
+      const items = (board?.cards || []).filter((c) => ids.has(c.id) && c.class !== col).map((c) => ({ card_id: c.id, failure_class: col }));
+      ok = items.length ? await act("set_classes", { items, layout }) : false;
+    }
+    if (ok) {
+      pin(payload.ids);
+      // O item não some: o bloco de destino abre e pisca onde ele caiu.
+      if (groupBy === "falha" && payload.ids.length === 1)
+        setOpenGroups((prev) => new Set(prev).add(`${col}|${payload.box}`));
+      setExtraClasses((list) => list.filter((c) => c !== col));
+      focusColumn(col, payload.ids[0]);
+    }
+  }
+
+  // Referência estável para os handlers: cards memorizados não redesenham à toa.
+  const live = useRef({ act, showDetails, dropAt, groupBy, busy, stepHistory });
+  useLayoutEffect(() => {
+    live.current = { act, showDetails, dropAt, groupBy, busy, stepHistory };
+  });
+  // Ctrl+Z desfaz; Ctrl+Y (ou Ctrl+Shift+Z) refaz. Não atrapalha quem está digitando num campo.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.closest("input, textarea, select, [contenteditable=true]") || t.closest("[role=dialog]"))) return;
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey) {
+        e.preventDefault();
+        void live.current.stepHistory("undo");
+      } else if (k === "y" || (k === "z" && e.shiftKey)) {
+        e.preventDefault();
+        void live.current.stepHistory("redo");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const h = useMemo<Handlers>(
+    () => ({
+      act: (action, fields) => live.current.act(action, fields),
+      details: (card) => void live.current.showDetails(card),
+      pickClass: (card, anchor) => setPicker({ card, rect: anchor.getBoundingClientRect() }),
+      grab: (e, payload) => {
+        if (e.button !== 0 || live.current.busy) return;
+        if ((e.target as HTMLElement).closest("[data-nodrag], input, select, textarea")) return;
+        const start = { x: e.clientX, y: e.clientY };
+        const pos = { x: e.clientX, y: e.clientY };
+        let active = false;
+        let frame = 0;
+        let target: Over = null;
+        const find = () => {
+          const el = document.elementFromPoint(pos.x, pos.y) as HTMLElement | null;
+          const colEl = el?.closest<HTMLElement>("[data-column]");
+          if (!colEl) return null;
+          const col = colEl.dataset.column || "";
+          // Em cima de outro card (faixa do meio) = agrupar. Só um relato por vez e só na mesma máquina.
+          const cardEl = el?.closest<HTMLElement>(".kb-card[data-card], .kb-item[data-card]");
+          if (cardEl && payload.ids.length === 1 && cardEl.dataset.card !== payload.ids[0] && cardEl.dataset.machine === payload.machine) {
+            const r = cardEl.getBoundingClientRect();
+            if (pos.y > r.top + r.height * 0.25 && pos.y < r.bottom - r.height * 0.25)
+              return { col, before: null, last: null, merge: cardEl.dataset.card };
+          }
+          const boxes = [...colEl.querySelectorAll<HTMLElement>(".kb-col-body > [data-box]")].filter(
+            (b) => !(col === payload.from && b.dataset.box === payload.box),
+          );
+          const next = boxes.find((b) => {
+            const r = b.getBoundingClientRect();
+            return pos.y < r.top + r.height / 2;
+          });
+          return { col, before: next?.dataset.box ?? null, last: boxes.at(-1)?.dataset.box ?? null };
+        };
+        const tick = () => {
+          frame = 0;
+          if (!active) return;
+          const ghost = ghostRef.current;
+          if (ghost) ghost.style.transform = `translate(${pos.x + 14}px, ${pos.y + 10}px)`;
+          // Rolagem automática perto das bordas do quadro e da coluna.
+          const boardEl = boardRef.current;
+          if (boardEl) {
+            const r = boardEl.getBoundingClientRect();
+            if (pos.x < r.left + 70) boardEl.scrollLeft -= Math.ceil((r.left + 70 - pos.x) / 4);
+            else if (pos.x > r.right - 70) boardEl.scrollLeft += Math.ceil((pos.x - r.right + 70) / 4);
+          }
+          const body = (document.elementFromPoint(pos.x, pos.y) as HTMLElement | null)
+            ?.closest("[data-column]")
+            ?.querySelector<HTMLElement>(".kb-col-body");
+          if (body) {
+            const r = body.getBoundingClientRect();
+            if (pos.y < r.top + 50) body.scrollTop -= Math.ceil((r.top + 50 - pos.y) / 3);
+            else if (pos.y > r.bottom - 50) body.scrollTop += Math.ceil((pos.y - r.bottom + 50) / 3);
+          }
+          const t = find();
+          if (t?.col !== target?.col || t?.before !== target?.before || t?.merge !== target?.merge) setOver(t);
+          target = t;
+          frame = requestAnimationFrame(tick);
+        };
+        const move = (ev: PointerEvent) => {
+          pos.x = ev.clientX;
+          pos.y = ev.clientY;
+          if (!active) {
+            if (Math.hypot(pos.x - start.x, pos.y - start.y) < 6) return;
+            active = true;
+            document.body.classList.add("kb-grabbing");
+            window.getSelection()?.removeAllRanges();
+            setDragging(payload);
+          }
+          if (!frame) frame = requestAnimationFrame(tick);
+        };
+        const stop = (drop: boolean) => {
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", up);
+          window.removeEventListener("pointercancel", cancel);
+          window.removeEventListener("keydown", key);
+          if (frame) cancelAnimationFrame(frame);
+          document.body.classList.remove("kb-grabbing");
+          if (!active) return;
+          // Depois de arrastar, o "clique" que o navegador dispara ao soltar não abre o card.
+          const swallow = (ev: MouseEvent) => {
+            ev.stopPropagation();
+            ev.preventDefault();
+          };
+          window.addEventListener("click", swallow, { capture: true, once: true });
+          setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 50);
+          const final = drop ? find() : null;
+          setDragging(null);
+          setOver(null);
+          if (final) void live.current.dropAt(payload, final);
+        };
+        const up = () => stop(true);
+        const cancel = () => stop(false);
+        const key = (ev: KeyboardEvent) => {
+          if (ev.key === "Escape") stop(false);
+        };
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+        window.addEventListener("pointercancel", cancel);
+        window.addEventListener("keydown", key);
+      },
+      validateColumn: (columnId, cardIds, filtered) => {
+        if (!cardIds.length) return;
+        if (live.current.groupBy === "falha" || filtered) void live.current.act("validate_cards", { card_ids: cardIds });
+        else void live.current.act("validate_column", { column_id: columnId });
+      },
+      deleteColumn: (columnId) => {
+        if (live.current.groupBy === "falha") setExtraClasses((list) => list.filter((c) => c !== columnId));
+        else void live.current.act("delete_column", { column_id: columnId });
+      },
+      validateCards: (cardIds) => {
+        if (cardIds.length) void live.current.act("validate_cards", { card_ids: cardIds });
+      },
+      toggleGroup: (key) =>
+        setOpenGroups((prev) => {
+          const next = new Set(prev);
+          if (!next.delete(key)) next.add(key);
+          return next;
+        }),
+    }),
+    [],
+  );
   const openKeyList = useMemo(() => [...openGroups], [openGroups]);
+  const changeQueue = (q: Queue) => {
+    setQueue(q);
+    setPinned(new Set());
+  };
+  const changeSearch = (v: string) => {
+    setSearch(v);
+    setPinned(new Set());
+  };
   const segments = useMemo(
     () =>
       viewColumns.map((c) => {
-        const n = byColumn.get(c.id)?.length || 0;
-        return { id: c.id, label: `${c.name} · ${c.context} · ${n} card(s)`, state: c.validated ? "ok" : n ? "" : "empty" };
+        const list = byColumn.get(c.id) || [];
+        return {
+          id: c.id,
+          label: `${c.name} · ${list.length} item(ns)${c.validated ? " · validada" : ""}`,
+          state: c.validated ? "ok" : list.length ? "" : "empty",
+        };
       }),
     [viewColumns, byColumn],
   );
-  const movingColumn = useMemo(() => {
-    if (!board || !moving) return null;
-    const card = board.cards.find((c) => c.id === moving);
-    if (!card) return null;
-    const current = groupBy === "falha" ? card.class : card.column_id;
-    return viewColumns.filter((c) => c.id !== current);
-  }, [board, moving, viewColumns, groupBy]);
   async function train() {
     setTraining(true);
     try {
@@ -1014,36 +1294,33 @@ export default function Kanban({
     pending = board.cards.filter((c) => !c.validated || c.held).length;
   const columns = viewColumns;
   const visibleCards = board.cards.filter((c) => !c.held);
-  const equipmentFailures = new Set(visibleCards.map((c) => `${c.class}|${c.column_id}`)).size;
   const failureKinds = new Set(visibleCards.map((c) => c.class)).size;
-  const progress = board.groups_count
-    ? (board.validated_count / board.groups_count) * 100
-    : 0;
+  const progress = board.groups_count ? (board.validated_count / board.groups_count) * 100 : 0;
+  const term = deferredSearch.toLocaleLowerCase();
+  const filtering = Boolean(term || queue);
   return (
-    <div className="board-page">
-      <button
-        className="text-btn back-link"
-        onClick={() => navigate({ view: "inicio" })}
-      >
-        <Icon name="back" size={17} />
-        Voltar ao início
-      </button>
-      <Heading
-        eyebrow="02 / REVISAR E VALIDAR"
-        title={board.name}
-        text={`${fmt(board.records_count)} apontamentos · ${fmt(equipmentFailures)} falhas por equipamento em ${fmt(failureKinds)} tipos de falha`}
-        action={
+    <div className={`kb ${dragging ? "kb-is-dragging" : ""}`}>
+      <header className="kb-head">
+        <button className="kb-back" aria-label="Voltar ao início" title="Voltar ao início" onClick={() => navigate({ view: "inicio" })}>
+          <Icon name="back" size={17} />
+        </button>
+        <div className="kb-head-text">
+          <h1 title={board.name}>{board.name}</h1>
+          <p>
+            {fmt(board.records_count)} apontamentos · {fmt(failureKinds)} tipos de falha · {fmt(board.columns.length)} máquinas
+          </p>
+        </div>
+        <div className="kb-head-actions">
           <div className="notifications" ref={bellRef}>
             <button
-              className={`bell-btn ${bell ? "active" : ""}`}
+              className={`kb-round ${bell ? "active" : ""}`}
               aria-label={`Itens em revisão: ${held.length}`}
               aria-expanded={bell}
+              title="Sino de revisão"
               onClick={() => setBell(!bell)}
             >
-              <Icon name="bell" size={22} />
-              {held.length > 0 && (
-                <span className="notification-badge">{held.length}</span>
-              )}
+              <Icon name="bell" size={18} />
+              {held.length > 0 && <span className="notification-badge">{held.length}</span>}
             </button>
             {bell && (
               <div className="notification-menu">
@@ -1060,12 +1337,7 @@ export default function Kanban({
                         <small>
                           {fmt(c.count)} apontamentos · {fmt(c.minutes, 1)} min
                         </small>
-                        <button
-                          className="text-btn"
-                          onClick={() =>
-                            setMoving(moving === c.id ? null : c.id)
-                          }
-                        >
+                        <button className="text-btn" onClick={() => setMoving(moving === c.id ? null : c.id)}>
                           Mover <Icon name="arrow" size={14} />
                         </button>
                         {moving === c.id && (
@@ -1073,10 +1345,7 @@ export default function Kanban({
                             columns={board.columns}
                             busy={busy}
                             onMove={async (column_id) => {
-                              if (
-                                await act("move", { card_id: c.id, column_id })
-                              )
-                                setMoving(null);
+                              if (await act("move", { card_id: c.id, column_id })) setMoving(null);
                             }}
                           />
                         )}
@@ -1086,36 +1355,14 @@ export default function Kanban({
                     <div className="notification-empty">
                       <Icon name="check" />
                       <b>Tudo resolvido por aqui</b>
-                      <span>Use a lupa de um card para revisá-lo depois.</span>
+                      <span>Use o sino de um card para revisá-lo depois.</span>
                     </div>
                   )}
                 </div>
               </div>
             )}
           </div>
-        }
-      />
-      <ErrorNotice message={error} retry={() => void load()} />
-      <ReviewBar
-        board={board}
-        queue={queue}
-        onQueue={setQueue}
-        busy={busy}
-        search={search}
-        onSearch={setSearch}
-        onBatch={() => {
-          setError("");
-          setBatchOpen(true);
-        }}
-        groupBy={groupBy}
-        onGroupBy={(g) => {
-          setGroupBy(g);
-          setMoving(null);
-          boardRef.current?.scrollTo({ left: 0 });
-        }}
-        more={
           <MoreMenu>
-            <AutomationSummary board={board} onTrain={() => void train()} training={training} />
             <button type="button" role="menuitem" data-close onClick={() => setCatalogOpen(true)}>
               <Icon name="target" size={15} />
               Catálogo de falhas
@@ -1140,55 +1387,116 @@ export default function Kanban({
               </div>
             )}
           </MoreMenu>
-        }
-      />
+        </div>
+      </header>
+      <ErrorNotice message={error} retry={() => void load()} />
+      <MlPanel board={board} queue={queue} onQueue={changeQueue} onTrain={() => void train()} training={training} />
+      <div className="kb-toolbar">
+        <div className="kb-undo" role="group" aria-label="Desfazer e refazer">
+          <button
+            type="button"
+            className="kb-icon"
+            disabled={busy || !board.undo}
+            onClick={() => void stepHistory("undo")}
+            title={board.undo ? `Desfazer: ${ACTION_LABEL[board.undo.action] || board.undo.action}${board.undo.card ? ` · ${board.undo.card}` : ""} (Ctrl+Z)` : "Nada para desfazer"}
+            aria-label="Desfazer (Ctrl+Z)"
+          >
+            <Icon name="undo" size={16} />
+          </button>
+          <button
+            type="button"
+            className="kb-icon"
+            disabled={busy || !board.redo}
+            onClick={() => void stepHistory("redo")}
+            title={board.redo ? `Refazer: ${ACTION_LABEL[board.redo.action] || board.redo.action}${board.redo.card ? ` · ${board.redo.card}` : ""} (Ctrl+Y)` : "Nada para refazer"}
+            aria-label="Refazer (Ctrl+Y)"
+          >
+            <Icon name="redo" size={16} />
+          </button>
+        </div>
+        <div className="kb-seg" role="radiogroup" aria-label="Agrupar colunas por">
+          {(
+            [
+              ["falha", "Por falha"],
+              ["maquina", "Por máquina"],
+            ] as const
+          ).map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              role="radio"
+              aria-checked={groupBy === k}
+              className={groupBy === k ? "on" : ""}
+              onClick={() => {
+                setGroupBy(k);
+                setMoving(null);
+                boardRef.current?.scrollTo({ left: 0 });
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <label className="kb-search">
+          <Icon name="search" size={15} />
+          <input aria-label="Buscar no quadro" placeholder="Buscar máquina ou relato…" value={search} onChange={(e) => changeSearch(e.target.value)} />
+          {search && (
+            <button type="button" aria-label="Limpar busca" onClick={() => changeSearch("")}>
+              <Icon name="close" size={13} />
+            </button>
+          )}
+        </label>
+        {queue && (
+          <button type="button" className="kb-chip" onClick={() => changeQueue("")}>
+            <i className={`tone-${TONE[queue]}`} />
+            {LIGHTS.find((l) => l.key === queue)?.label}
+            <Icon name="close" size={12} />
+          </button>
+        )}
+        <span className="kb-hint">
+          <Icon name="grip" size={13} />
+          Arraste para mover · solte sobre um card para agrupar
+        </span>
+        <button
+          className="kb-btn"
+          disabled={busy || !board.automation.pending_high}
+          onClick={() => {
+            setError("");
+            setBatchOpen(true);
+          }}
+          title="Valida de uma vez os itens verdes, depois de conferir uma amostra"
+        >
+          <i className="tone-ok" />
+          Validar confiáveis ({fmt(board.automation.pending_high)})
+        </button>
+      </div>
       <BoardRail boardRef={boardRef} segments={segments} />
-      <div
-        className="kanban-board"
-        id="kanban-board"
-        aria-label="Quadro de validação"
-        ref={boardRef}
-        onDragOver={(e) => {
-          // Rolagem automática enquanto o card é arrastado perto das bordas.
-          const el = boardRef.current;
-          if (!drag || !el) return;
-          const r = el.getBoundingClientRect();
-          if (e.clientX < r.left + 90) el.scrollLeft -= 22;
-          else if (e.clientX > r.right - 90) el.scrollLeft += 22;
-        }}
-      >
-        {columns.map((col, index) => {
+      <div className="kb-board" id="kanban-board" aria-label="Quadro de validação" ref={boardRef}>
+        {columns.map((col) => {
           const all = byColumn.get(col.id) || [];
-          const term = deferredSearch.toLocaleLowerCase();
-          const visible =
-            !term && !queue
-              ? all
-              : all.filter(
-                  (c) =>
-                    (!queue || c.confidence === queue) &&
-                    (!term ||
-                      `${c.name} ${c.sample} ${c.class} ${col.name} ${col.context} ${machineOf(c)}`.toLocaleLowerCase().includes(term)),
-                );
-          if (queue && !visible.length) return null;
-          const inColumn = (id: string) => (id && all.some((c) => c.id === id) ? id : "");
+          const visible = !filtering
+            ? all
+            : all.filter(
+                (c) =>
+                  pinned.has(c.id) ||
+                  (!queue || c.confidence === queue) &&
+                  (!term || `${c.name} ${c.sample} ${c.class} ${col.name} ${col.context} ${machineOf(c)}`.toLocaleLowerCase().includes(term)),
+              );
+          if (filtering && !visible.length && !(dragging && over?.col === col.id)) return null;
+          const fromHere = dragging?.from === col.id;
           return (
             <KanbanColumn
               key={col.id}
               col={col}
-              index={index}
-              total={columns.length}
-              prevId={columns[index - 1]?.id}
-              nextId={columns[index + 1]?.id}
               cards={visible}
               allCount={all.length}
+              validatedCount={all.filter((c) => c.validated).length}
+              order={boxOrder.get(col.id) || []}
               busy={busy}
-              canDrop={!!drag}
-              over={over === col.id}
-              dragId={groupBy === "falha" && drag.startsWith("group:") ? drag : inColumn(drag)}
-              flashId={inColumn(flash)}
-              movingId={inColumn(moving || "")}
-              moveColumns={inColumn(moving || "") ? movingColumn : null}
-              machineOf={groupBy === "falha" ? machineOf : null}
+              dragBox={fromHere ? dragging.box : ""}
+              drop={over?.col === col.id && !over.merge ? over.before : undefined}
+              mergeId={over?.col === col.id && over.merge ? over.merge : ""}
+              flashId={flash && all.some((c) => c.id === flash) ? flash : ""}
               machines={machines}
               openKeys={openKeyList.filter((k) => k.startsWith(`${col.id}|`)).join("\n")}
               h={h}
@@ -1196,24 +1504,85 @@ export default function Kanban({
           );
         })}
         <button
-          className="add-column"
+          className="kb-add"
           onClick={() => {
             if (groupBy === "falha") {
               setNewFailure("");
               return;
             }
-            setNewCol({
-              name: "",
-              unit: board.columns[0]?.unit || "",
-              line: board.columns[0]?.line || "",
-            });
+            setNewCol({ name: "", unit: board.columns[0]?.unit || "", line: board.columns[0]?.line || "" });
             setAdding(true);
           }}
         >
-          <Icon name="plus" size={23} />
+          <Icon name="plus" size={18} />
           <span>{groupBy === "falha" ? "Nova falha" : "Nova coluna"}</span>
         </button>
       </div>
+      {dragging && over?.merge && <div className="kb-merge-hint">Soltar para agrupar</div>}
+      {toast && (
+        <div className="kb-toast" role="status">
+          <span>{toast.text}</span>
+          {toast.undo && board.undo && (
+            <button type="button" onClick={() => void stepHistory("undo")}>
+              <Icon name="undo" size={14} />
+              Desfazer
+            </button>
+          )}
+          {toast.redo && board.redo && (
+            <button type="button" onClick={() => void stepHistory("redo")}>
+              <Icon name="redo" size={14} />
+              Refazer
+            </button>
+          )}
+          <button type="button" className="kb-toast-x" aria-label="Fechar aviso" onClick={() => setToast(null)}>
+            <Icon name="close" size={13} />
+          </button>
+        </div>
+      )}
+      {mergeAsk && (
+        <Modal title="Agrupar estes relatos?" onClose={() => setMergeAsk(null)}>
+          <div className="kb-merge">
+            <div className="kb-merge-pair">
+              <div>
+                <small>Relato arrastado</small>
+                <b>{mergeAsk.src.name}</b>
+                <span>
+                  {fmt(mergeAsk.src.count)} apontamento(s) · {prettyClass(mergeAsk.src.class)}
+                </span>
+              </div>
+              <Icon name="arrow" size={18} />
+              <div>
+                <small>Entra em</small>
+                <b>{mergeAsk.dst.name}</b>
+                <span>
+                  {fmt(mergeAsk.dst.count)} apontamento(s) · {prettyClass(mergeAsk.dst.class)}
+                </span>
+              </div>
+            </div>
+            <p className="helper">
+              Os apontamentos passam a contar juntos em “{mergeAsk.dst.name}” ({fmt(mergeAsk.src.count + mergeAsk.dst.count)} no total), classificados como{" "}
+              {`“${prettyClass(mergeAsk.dst.class)}”`}. O card precisa ser validado de novo. Mudou de ideia? Ctrl+Z desfaz.
+            </p>
+            <ErrorNotice message={error} />
+            <div className="kb-merge-actions">
+              <button className="btn secondary" onClick={() => setMergeAsk(null)}>
+                Cancelar
+              </button>
+              <button className="btn primary" disabled={busy} onClick={() => void confirmMerge()}>
+                <Icon name="check" size={16} />
+                Agrupar
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {dragging && (
+        <div className={`kb-ghost tone-${dragging.tone}`} ref={ghostRef} aria-hidden="true">
+          <i />
+          <span>{dragging.label}</span>
+          {dragging.ids.length > 1 && <b>{dragging.ids.length}</b>}
+        </div>
+      )}
       {picker && (
         <ClassPicker
           card={board.cards.find((c) => c.id === picker.card.id) || picker.card}
@@ -1223,6 +1592,7 @@ export default function Kanban({
           onPick={(value) => {
             const cardId = picker.card.id;
             setPicker(null);
+            pin([cardId]);
             void act("set_class", { card_id: cardId, failure_class: value });
           }}
           onNew={() => {
@@ -1231,39 +1601,23 @@ export default function Kanban({
           }}
         />
       )}
-      <div className="validation-footer">
-        <div className="validation-status">
-          <span className={`status-ring ${board.ready ? "complete" : ""}`}>
-            {board.ready ? (
-              <Icon name="check" size={18} />
-            ) : (
-              <Icon name="shield" size={19} />
-            )}
-          </span>
-          <div>
-            <b>
-              {board.ready
-                ? "Tudo validado. Vamos aos gráficos?"
-                : `${fmt(board.validated_count)} de ${fmt(board.groups_count)} grupos validados`}
-            </b>
-            <small>
-              {held.length
-                ? `${held.length} item(ns) no sino de revisão`
-                : pending
-                  ? "Confira os cards restantes para continuar."
-                  : "Suas alterações estão salvas."}
-            </small>
-          </div>
-        </div>
-        <div
-          className="progress-track"
-          aria-label={`${Math.round(progress)}% validado`}
-        >
-          <i style={{ width: `${progress}%` }} />
+      <div className="kb-footer">
+        <span className={`kb-ring ${board.ready ? "done" : ""}`} style={{ "--p": `${progress}%` } as React.CSSProperties}>
+          {board.ready ? <Icon name="check" size={15} /> : <b>{Math.round(progress)}%</b>}
+        </span>
+        <div className="kb-footer-text">
+          <b>{board.ready ? "Tudo validado" : `${fmt(board.validated_count)} de ${fmt(board.groups_count)} validados`}</b>
+          <small>
+            {held.length
+              ? `${held.length} item(ns) no sino de revisão`
+              : pending
+                ? "Valide o que falta para liberar os gráficos."
+                : "Alterações salvas."}
+          </small>
         </div>
         {!board.ready && (
           <button
-            className="btn confirm-all"
+            className="kb-btn ghost"
             disabled={busy || pending === 0}
             onClick={() => {
               setChecked(false);
@@ -1271,23 +1625,68 @@ export default function Kanban({
               setConfirmAll(true);
             }}
           >
-            <Icon name="checks" size={17} />
+            <Icon name="checks" size={15} />
             Confirmar todos
           </button>
         )}
         <button
-          className="btn primary next-step"
+          className="kb-btn primary"
           disabled={!board.ready || busy}
           onClick={() => void finish()}
-          title={
-            !board.ready
-              ? "Valide todos os cards e esvazie o sino"
-              : "Abrir dashboard"
-          }
+          title={!board.ready ? "Valide todos os cards e esvazie o sino" : "Abrir dashboard"}
         >
-          Ver análises <Icon name="arrow" />
+          {finishing ? "Aprendendo…" : board.finished_at ? "Ver análises" : "Finalizar e ver análises"} <Icon name="arrow" size={16} />
         </button>
       </div>
+      {learned && (
+        <Modal title="A ML aprendeu com esta planilha" onClose={() => navigate({ view: "analise", id })}>
+          <div className="kb-learned">
+            <div className="kb-learned-hero">
+              <strong className={learned.hit_rate >= 85 ? "tone-ok" : learned.hit_rate >= 70 ? "tone-warn" : "tone-bad"}>
+                {fmt(learned.hit_rate, 1)}%
+              </strong>
+              <span>
+                de acerto da ML nesta planilha
+                {learned.previous_hit_rate != null && (
+                  <b className={learned.hit_rate >= learned.previous_hit_rate ? "up" : "down"}>
+                    {learned.hit_rate >= learned.previous_hit_rate ? " ▲ " : " ▼ "}
+                    {fmt(Math.abs(learned.hit_rate - learned.previous_hit_rate), 1)} pts vs. a anterior ({fmt(learned.previous_hit_rate, 1)}%)
+                  </b>
+                )}
+              </span>
+              {learned.estimated && <small>Estimado: esta planilha foi importada antes da medição por chegada.</small>}
+            </div>
+            <div className="kb-learned-grid">
+              <div>
+                <b>{fmt(learned.corrections)}</b>
+                <span>correções suas viraram memória</span>
+              </div>
+              <div>
+                <b>
+                  {fmt(learned.examples_before || 0)} → {fmt(learned.examples_after || 0)}
+                </b>
+                <span>exemplos no modelo</span>
+              </div>
+              <div>
+                <b>
+                  {learned.model_after != null
+                    ? `${learned.model_before != null ? `${fmt(learned.model_before, 1)}% → ` : ""}${fmt(learned.model_after, 1)}%`
+                    : "Calibrando"}
+                </b>
+                <span>{learned.model_after != null ? "acerto do modelo (teste cego)" : "o modelo mede o acerto a partir de 60 exemplos"}</span>
+              </div>
+            </div>
+            <p className="helper">
+              {learned.from_past > 0 ? `${fmt(learned.from_past, 0)}% desta planilha já chegou classificada pelo que a ML aprendeu antes. ` : ""}
+              Na próxima planilha, os relatos que você corrigiu chegam classificados e o modelo usa estes exemplos para reconhecer
+              relatos parecidos.
+            </p>
+            <button className="btn primary" onClick={() => navigate({ view: "analise", id })}>
+              Ver análises <Icon name="arrow" size={16} />
+            </button>
+          </div>
+        </Modal>
+      )}
       {batchOpen && (
         <SafeBatchModal
           board={board}
@@ -1604,25 +2003,13 @@ export default function Kanban({
               [...board.events].reverse().map((e) => (
                 <article key={e.revision}>
                   <b>
-                    {{
-                      validate_column: "Coluna validada",
-                      validate_card: "Validação de card alterada",
-                      validate_all: "Todos os cards confirmados",
-                      set_class: "Classe de falha alterada",
-                      set_classes: "Classes aplicadas em lote",
-                      validate_cards: "Falha validada (cards da coluna)",
-                      validate_confident: "Lote de confiança alta validado",
-                      hold: "Card enviado ao sino",
-                      move: "Card movido",
-                      add_column: "Coluna criada",
-                      delete_column: "Coluna vazia excluída",
-                      rename_card: "Descrição editada",
-                      split_card: "Registros desagrupados",
-                    }[e.action] || e.action}
+                    {ACTION_LABEL[e.action] || e.action}
                   </b>
                   <p>
                     {e.card || e.column}
-                    {e.value != null && e.action !== "set_class" ? `${fmt(Number(e.value))} card(s)` : ""}
+                    {typeof e.value === "number" ? ` · ${fmt(e.value)} card(s)` : ""}
+                    {e.action === "merge_cards" && e.value ? ` ← ${e.value}` : ""}
+                    {(e.action === "undo" || e.action === "redo") && e.value ? ` (${ACTION_LABEL[String(e.value)] || e.value})` : ""}
                     {e.action === "set_class" && e.value ? ` → ${prettyClass(String(e.value))}` : ""}
                   </p>
                   <small>
@@ -1638,5 +2025,6 @@ export default function Kanban({
         </Modal>
       )}
     </div>
+
   );
 }

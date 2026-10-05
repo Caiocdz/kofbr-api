@@ -46,7 +46,7 @@ def upload():
         previous = conn.execute('SELECT id FROM radar_analyses WHERE content_hash = ?', (fingerprint,)).fetchone()
     if previous:
         return jsonify(erro='Esta planilha já está no histórico.', existing_id=previous['id']), 409
-    doc = importer.new_document(records, filename, warnings)
+    doc = service.snapshot_suggestions(importer.new_document(records, filename, warnings))
     analysis_id, inserted = store.insert(doc, fingerprint, data)
     if not inserted:
         return jsonify(erro='Esta planilha já está no histórico.', existing_id=analysis_id), 409
@@ -87,6 +87,13 @@ def action(analysis_id):
         service.learn(updated, {body.get('card_id')}, previous)
     elif body.get('action') == 'set_classes':
         service.learn(updated, {str((i or {}).get('card_id')) for i in body.get('items') or []})
+    elif body.get('action') in ('undo', 'redo'):
+        # A memória de correções acompanha o desfazer: o que voltou ao automático é esquecido.
+        previous = {c['id']: c.get('failure_class') for c in doc['cards']}
+        now = {c['id']: c.get('failure_class') for c in updated['cards']}
+        changed = {i for i in now if now[i] != previous.get(i)}
+        if changed:
+            service.learn(updated, changed, previous)
     if body.get('action') in LEARNING_ACTIONS:
         # O modelo aprende com cada validação/correção, em segundo plano.
         from . import learning
@@ -94,7 +101,7 @@ def action(analysis_id):
     return jsonify(service.board(updated))
 
 
-LEARNING_ACTIONS = {'set_class', 'set_classes', 'validate_card', 'validate_column', 'validate_all',
+LEARNING_ACTIONS = {'set_class', 'set_classes', 'merge_cards', 'undo', 'redo', 'validate_card', 'validate_column', 'validate_all',
                     'validate_confident', 'validate_cards', 'move'}
 
 
@@ -134,7 +141,62 @@ def finish(analysis_id):
     doc = document(analysis_id)
     if not service.ready(doc):
         return jsonify(erro='Valide todos os cards e resolva os itens do sino antes de avançar.'), 409
-    return jsonify(ready=True)
+    if doc.get('mode') == 'ml':
+        return jsonify(ready=True)
+    # Finalizar = a ML aprende com esta planilha (treino na hora) e mede quanto acertou nela.
+    return jsonify(ready=True, learning=service.finish_learning(doc))
+
+
+@bp.route('/resumo', methods=['POST'])
+def resumo_upload():
+    """Planilha solta na tela "Planilha resumida": agrupa as observações e preenche a classificação."""
+    from . import resumo
+    file = request.files.get('file')
+    if not file or not file.filename:
+        raise ValueError('Selecione uma planilha.')
+    filename = Path(file.filename.replace('\\', '/')).name
+    if not filename.lower().endswith(('.xlsx', '.xlsm', '.csv')):
+        raise ValueError('Envie um arquivo .xlsx, .xlsm ou .csv.')
+    return jsonify(resumo.from_upload(file.read(), filename))
+
+
+@bp.route('/resumo/<file_id>.xlsx')
+def resumo_download(file_id):
+    from . import resumo
+    path, name = resumo.output(file_id)
+    return send_file(path, as_attachment=True, download_name=name,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@bp.route('/resumo/<file_id>/completa')
+def resumo_full_download(file_id):
+    from . import resumo
+    path, name = resumo.output(file_id, full=True)
+    return send_file(path, as_attachment=True, download_name=name)
+
+
+@bp.route('/analyses/<analysis_id>/completa')
+def analysis_full(analysis_id):
+    """A planilha que foi importada, inteira, com a coluna Classificação que saiu do quadro."""
+    from . import resumo
+    doc = document(analysis_id)
+    if doc.get('mode') == 'ml':
+        raise ValueError('Para análises do fluxo único, baixe a planilha classificada pelo próprio fluxo.')
+    data, name = resumo.full_from_analysis(doc, store.source(analysis_id))
+    mime = ('application/vnd.ms-excel.sheet.macroEnabled.12' if name.endswith('.xlsm')
+            else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    return send_file(io.BytesIO(data), as_attachment=True, download_name=name, mimetype=mime)
+
+
+@bp.route('/analyses/<analysis_id>/resumo.xlsx')
+def analysis_resumo(analysis_id):
+    from . import resumo
+    doc = document(analysis_id)
+    if doc.get('mode') == 'ml':
+        raise ValueError('A planilha resumida por observação está disponível para análises do quadro.')
+    data, name = resumo.from_analysis(doc)
+    return send_file(io.BytesIO(data), as_attachment=True, download_name=name,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
 @bp.route('/analyses/<analysis_id>/source')

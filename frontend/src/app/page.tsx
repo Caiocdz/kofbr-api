@@ -24,8 +24,11 @@ import Importer from "@/components/importer";
 import Kanban from "@/components/kanban";
 import MlFill from "@/components/ml-fill";
 import Pipeline from "@/components/pipeline";
+import Resumo from "@/components/resumo";
 import { Dashboard, Compare } from "@/components/analysis";
 import "./home.css";
+import "./kanban.css";
+import "./resumo.css";
 
 /** Tampinha de garrafa (coroa com 21 dentes), gerada por código. */
 const CAP_PATH = (() => {
@@ -446,6 +449,7 @@ export default function Page() {
     comparar: "Comparar períodos",
     gerar: "Gerar planilha de apontamentos",
     fluxo: "Nova análise",
+    resumir: "Classificar planilha",
   }[route.view];
   return (
     <div className="app-shell">
@@ -505,14 +509,6 @@ export default function Page() {
         </div>
         <nav>
           <button
-            className={`nav-link ${route.view === "fluxo" ? "active" : ""}`}
-            onClick={() => navigate({ view: "fluxo" })}
-            aria-current={route.view === "fluxo" ? "page" : undefined}
-          >
-            <Icon name="layers" size={19} />
-            <span>Nova análise</span>
-          </button>
-          <button
             className={`nav-link ${route.view === "inicio" ? "active" : ""}`}
             onClick={() => navigate({ view: "inicio" })}
             aria-current={route.view === "inicio" ? "page" : undefined}
@@ -529,12 +525,12 @@ export default function Page() {
             <span>Comparar</span>
           </button>
           <button
-            className={`nav-link ${route.view === "gerar" ? "active" : ""}`}
-            onClick={() => navigate({ view: "gerar" })}
-            aria-current={route.view === "gerar" ? "page" : undefined}
+            className={`nav-link ${route.view === "resumir" ? "active" : ""}`}
+            onClick={() => navigate({ view: "resumir" })}
+            aria-current={route.view === "resumir" ? "page" : undefined}
           >
             <Icon name="sheet" size={19} />
-            <span>Gerar Planilha de Apontamentos</span>
+            <span>Classificar planilha</span>
           </button>
         </nav>
         <div className="sidebar-bottom">
@@ -604,13 +600,14 @@ export default function Page() {
           className={`page-content ${route.view === "quadro" ? "board-content" : ""}`}
         >
           <ErrorNotice message={error} retry={load} />
-          {!loaded && route.view !== "importar" && route.view !== "gerar" && route.view !== "fluxo" ? (
+          {!loaded && route.view !== "importar" && route.view !== "gerar" && route.view !== "fluxo" && route.view !== "resumir" ? (
             <Loading />
           ) : (
             <>
               {route.view === "inicio" && <Home analyses={analyses} />}
               {route.view === "importar" && <Importer onUpdate={load} />}
               {route.view === "gerar" && <MlFill />}
+              {route.view === "resumir" && <Resumo />}
               {route.view === "fluxo" && (
                 <Pipeline key={route.id || "novo"} id={route.id} step={route.step} analyses={analyses} onUpdate={load} />
               )}

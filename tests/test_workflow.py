@@ -538,3 +538,205 @@ def test_pipeline_accept_high_needs_confirmation(client, ml):
     if high['total']:
         result = client.post(url, json={'confirm': True}).json
         assert result['progress']['validados'] == high['total']
+
+
+def test_reorder_boxes_and_move_with_position(client):
+    rows = [['U1', '30/09/2026', 'L1', 'Enchedora', 'Mecânica', 'Rolamento quebrado', 5],
+            ['U1', '30/09/2026', 'L1', 'Rotuladora', 'Elétrica', 'Sensor com defeito', 3],
+            ['U1', '30/09/2026', 'L1', 'Paletizador', 'Mecânica', 'Correia rompida', 4]]
+    board = upload(client, rows).json
+    ids = [c['id'] for c in board['cards']]
+    revision, events = board['revision'], len(board['events'])
+    # Só a ordem: não muda classe, validação nem o histórico de alterações.
+    result = action(client, board, 'reorder', layout={'key': 'maquina:x', 'ids': list(reversed(ids))})
+    assert result.status_code == 200, result.json
+    board = result.json
+    assert board['layout']['maquina:x'] == list(reversed(ids))
+    assert board['revision'] == revision + 1 and len(board['events']) == events
+    assert not any(c['validated'] for c in board['cards'])
+    # Mudar de falha já posicionando a caixa em cima de outra.
+    card = board['cards'][0]
+    result = action(client, board, 'set_class', card_id=card['id'], failure_class='FALHA DE TESTE',
+                    layout={'key': 'falha:FALHA DE TESTE', 'ids': [card['column_id']]})
+    board = result.json
+    assert next(c for c in board['cards'] if c['id'] == card['id'])['class'] == 'FALHA DE TESTE'
+    assert board['layout']['falha:FALHA DE TESTE'] == [card['column_id']]
+    assert action(client, board, 'reorder', layout={'key': 'outra', 'ids': []}).status_code == 400
+
+
+def test_learning_history_tracks_accuracy(tmp_path, monkeypatch):
+    from workflow import learning
+    monkeypatch.setenv('KOFBR_DATA_DIR', str(tmp_path))
+    learning.reset()
+    rows = [(f'rolamento quebrado {i}', 'Enchedora', 'FALHA DE ROLAMENTO', 1) for i in range(40)]
+    rows += [(f'sensor sem sinal {i}', 'Rotuladora', 'FALHA DE SENSOR', 1) for i in range(40)]
+    first = learning.train(rows)
+    assert first['accuracy'] is not None
+    learning.train(rows, force=True)  # mesmos exemplos = mesmo ponto
+    assert len(learning.history()) == 1
+    learning.train(rows + [('correia rompida', 'Paletizador', 'FALHA DE CORREIA', 3)])
+    info = learning.info()
+    assert len(info['history']) == 2 and info['measure_min'] == 60
+    learning.reset()
+    assert learning.history() == []
+
+
+def test_finish_learns_and_next_sheet_improves(client):
+    vague = ['MAQUINA PAROU DE REPENTE NO TURNO', 'EQUIPAMENTO PAROU SOZINHO', 'PAROU DE REPENTE NO TURNO B']
+    sheet1 = [['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', t, 10] for t in vague]
+    sheet1 += [['U1', '13/09/2026', 'L1', 'Paletizador', 'P.EQ.LINHA', 'FALHA NO SENSOR DE SAIDA', 5]]
+    board = upload(client, sheet1, 'dia13.xlsx').json
+    assert all(c.get('suggested') for c in store.get(board['id'])['cards'])
+    # O analista corrige os relatos vagos e finaliza.
+    for card in [c for c in board['cards'] if c['class'] == 'SEM MODO DE FALHA IDENTIFICADO']:
+        board = action(client, board, 'set_class', card_id=card['id'], failure_class='FALHA DE INVERSOR').json
+    board = validate_all(client, board)
+    assert not store.get(board['id']).get('finished_at')
+    done = client.post(f"/api/workspace/analyses/{board['id']}/finish").json
+    report = done['learning']
+    assert report['hit_rate'] < 50 and report['corrections'] >= 1 and report['previous_hit_rate'] is None
+    assert store.get(board['id'])['finished_at']
+    # Próxima planilha com os mesmos relatos: já chega classificada pelo que foi aprendido.
+    sheet2 = [['U1', '14/09/2026', 'L2', 'Enchedora', 'P.EQ.LINHA', t, 7] for t in vague]
+    board2 = upload(client, sheet2, 'dia14.xlsx').json
+    assert {c['class'] for c in board2['cards']} == {'FALHA DE INVERSOR'}
+    board2 = validate_all(client, board2)
+    report2 = client.post(f"/api/workspace/analyses/{board2['id']}/finish").json['learning']
+    assert report2['hit_rate'] == 100 and report2['previous_hit_rate'] == report['hit_rate']
+    assert report2['from_past'] == 100
+    sheets = client.get(f"/api/workspace/analyses/{board2['id']}").json['automation']['learning']['sheets']
+    assert [s['id'] for s in sheets] == [board['id'], board2['id']]
+    # Finalizar de novo não duplica o ponto da planilha.
+    client.post(f"/api/workspace/analyses/{board2['id']}/finish")
+    assert len(client.get(f"/api/workspace/analyses/{board2['id']}").json['automation']['learning']['sheets']) == 2
+
+
+def test_merge_cards_undo_redo(client):
+    rows = [['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'ROLAMENTO QUEBRADO', 10],
+            ['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'SENSOR SEM SINAL', 5],
+            ['U1', '13/09/2026', 'L1', 'Rotuladora', 'P.EQ.LINHA', 'MOTOR QUEIMADO', 7]]
+    board = upload(client, rows).json
+    assert board['undo'] is None and board['redo'] is None
+    by = {c['sample']: c for c in board['cards']}
+    rol, sen, mot = by['ROLAMENTO QUEBRADO'], by['SENSOR SEM SINAL'], by['MOTOR QUEIMADO']
+    # Contextos diferentes (outra máquina) nunca se misturam.
+    bad = action(client, board, 'merge_cards', card_id=mot['id'], target_id=rol['id'])
+    assert bad.status_code == 400 and 'mesma máquina' in bad.json['erro']
+    board = action(client, board, 'merge_cards', card_id=sen['id'], target_id=rol['id']).json
+    merged = next(c for c in board['cards'] if c['id'] == rol['id'])
+    assert len(board['cards']) == 2 and merged['count'] == 2 and merged['class'] == 'FALHA DE ROLAMENTO'
+    assert board['undo']['action'] == 'merge_cards' and board['events'][-1]['value'].upper() == 'SENSOR SEM SINAL'
+    # Ctrl+Z desfaz, Ctrl+Y refaz.
+    board = action(client, board, 'undo').json
+    assert len(board['cards']) == 3 and board['redo']['action'] == 'merge_cards' and board['undo'] is None
+    board = action(client, board, 'redo').json
+    assert len(board['cards']) == 2 and board['redo'] is None
+    # Desfazer uma troca de classe também tira o relato da memória de correções.
+    board = action(client, board, 'set_class', card_id=mot['id'], failure_class='FALHA DE BOBINA').json
+    assert service.memory().get('MOTOR QUEIMADO', {}).get('label') == 'FALHA DE BOBINA'
+    board = action(client, board, 'undo').json
+    assert 'MOTOR QUEIMADO' not in service.memory()
+    assert next(c for c in board['cards'] if c['id'] == mot['id'])['class'] == 'FALHA DE MOTOR'
+    assert action(client, board, 'redo').status_code == 200
+
+
+def test_resumo_groups_duplicates_and_fills_classification(client):
+    import openpyxl as xl
+    rows = [['Observações', 'Classificação']]
+    rows += [[f'TROCA DA MOLA DO BLOCO N°{i} 3000812{i:04d}', 'Mola danificada'] for i in range(20)]
+    rows += [[f'SENSOR DE PORTA EM FALHA {i}', 'Sensor danificado'] for i in range(20)]
+    rows += [['Presilha de gargalo danificada, realizada a troca', 'Presilha danificada']] * 3
+    rows += [['PRESILHA DE GARGALO DANIFICADA REALIZADA A TROCA 30008223804', None]]
+    rows += [['TROCA DA MOLA DO BLOCO 99', None], ['', None], ['Sem detalhes aqui', 'Sem detalhes']]
+    wb = xl.Workbook()
+    for r in rows:
+        wb.active.append(r)
+    data = io.BytesIO()
+    wb.save(data)
+    result = client.post('/api/workspace/resumo', data={'file': (io.BytesIO(data.getvalue()), 'jundiai.xlsx')}).json
+    st = result['stats']
+    assert st['rows'] == len(rows) - 2  # linha totalmente vazia não conta
+    # As 4 presilhas (com/sem acento, pontuação e O.S.) viram UMA observação.
+    pres = [p for p in result['preview'] if 'PRESILHA' in p['text'].upper()]
+    assert len(pres) == 1 and pres[0]['count'] == 4 and pres[0]['class'] == 'FALHA DE PRESILHA'
+    mola = next(p for p in result['preview'] if p['text'] == 'TROCA DA MOLA DO BLOCO 99')
+    assert mola['class'] == 'FALHA DE MOLA' and mola['source'] != 'Analista (padronizada)'
+    out = client.get(f"/api/workspace/resumo/{result['id']}.xlsx")
+    sheet = xl.load_workbook(io.BytesIO(out.data)).worksheets[0]
+    assert [c.value for c in sheet[1]][:4] == ['Nº', 'Observação', 'Ocorrências', 'Classificação']
+    assert sheet.max_row - 1 == st['unique']
+    # A planilha dos analistas ensinou o modelo.
+    from workflow.resumo import sheet_examples, standardize_label
+    assert len(sheet_examples()) >= 40
+    cat = service.catalog()
+    assert standardize_label('Trava Gargalo danificada', cat) == 'FALHA DE TRAVA GARGALO'
+    assert standardize_label('Falha no balancim', cat) == 'FALHA DE BALANCIM'
+    assert standardize_label('Sem detalhes', cat) is None
+    assert standardize_label('FALHA DE VÁLVULA DE ENCHIMENTO', cat) == 'FALHA DE VÁLVULA DE ENCHIMENTO'
+
+
+def test_resumo_from_validated_analysis(client):
+    import openpyxl as xl
+    rows = [['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'FALHA NO SENSOR DE SAIDA 30008224349', 10],
+            ['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'FALHA NO SENSOR DE SAIDA 30008224350', 5],
+            ['U1', '13/09/2026', 'L2', 'Rotuladora', 'P.EQ.LINHA', 'ROLAMENTO QUEBRADO', 7]]
+    board = validate_all(client, upload(client, rows).json)
+    out = client.get(f"/api/workspace/analyses/{board['id']}/resumo.xlsx")
+    assert out.status_code == 200
+    sheet = xl.load_workbook(io.BytesIO(out.data)).worksheets[0]
+    head = [c.value for c in sheet[1]]
+    body = [dict(zip(head, [c.value for c in r])) for r in sheet.iter_rows(min_row=2)]
+    assert len(body) == 2
+    sensor = next(r for r in body if r['Classificação'] == 'FALHA DE SENSOR')
+    assert sensor['Ocorrências'] == 2 and sensor['Minutos de parada'] == 15
+
+
+def _sap_sheet():
+    import openpyxl as xl
+    from openpyxl.styles import PatternFill
+    head = ['Centro', 'Data Inicio Real', 'Linha', 'Tipo de Parada', 'Ordem', 'Turno', 'Intervalo', 'chave do parada',
+            'Observações', 'Total minutos', 'Minutos de paradas']
+    wb = xl.Workbook()
+    ws = wb.active
+    ws.title = 'Base SAP'
+    ws.append(head)
+    ws['I1'].fill = PatternFill('solid', fgColor='C00000')
+    texts = ['FALHA NO SENSOR DE SAIDA DE PALETES ( 30008224349 )', 'ROLAMENTO QUEBRADO', 'FALHA NO SENSOR DE SAIDA DE PALETES ( 30008224350 )',
+             'TRAVOU NA SAIDA', '']
+    for i, t in enumerate(texts, 2):
+        ws.append(['BR01', '13/09/2026', 'LINHA001', 'P.EQ.LINHA', 3000 + i, 1, '08:00', 'ENCHEDORA BRH LI01', t, f'=K{i}*1', 10 * i])
+    ws.auto_filter.ref = 'A1:K6'
+    data = io.BytesIO()
+    wb.save(data)
+    return data.getvalue(), head, texts
+
+
+def test_full_sheet_from_validated_analysis_keeps_everything_and_adds_classification(client):
+    import openpyxl as xl
+    data, head, texts = _sap_sheet()
+    board = client.post('/api/workspace/import', data={'file': (io.BytesIO(data), 'sap.xlsx')}).json
+    board = validate_all(client, board)
+    out = client.get(f"/api/workspace/analyses/{board['id']}/completa")
+    assert out.status_code == 200 and 'com classifica' in out.headers['Content-Disposition']
+    ws = xl.load_workbook(io.BytesIO(out.data)).worksheets[0]
+    assert ws.title == 'Base SAP'
+    # Todas as colunas originais no mesmo lugar (fórmulas intactas) + Classificação no fim.
+    assert [c.value for c in ws[1]] == head + ['Classificação']
+    assert ws['J2'].value == '=K2*1' and ws['I1'].fill.fgColor.rgb.endswith('C00000')
+    assert ws.max_row == 1 + len(texts) and ws.auto_filter.ref.startswith('A1:L')
+    got = {ws.cell(r, 9).value or '': ws.cell(r, 12).value for r in range(2, ws.max_row + 1)}
+    assert got[texts[0]] == got[texts[2]] == 'FALHA DE SENSOR'
+    assert got[texts[1]] == 'FALHA DE ROLAMENTO'
+    assert got[''] == 'SEM DESCRIÇÃO'
+
+
+def test_full_sheet_from_upload_ml_fills_every_row(client):
+    import openpyxl as xl
+    data, head, texts = _sap_sheet()
+    result = client.post('/api/workspace/resumo', data={'file': (io.BytesIO(data), 'sap.xlsx')}).json
+    assert result['full'] == 'sap - com classificação.xlsx'
+    out = client.get(f"/api/workspace/resumo/{result['id']}/completa")
+    ws = xl.load_workbook(io.BytesIO(out.data)).worksheets[0]
+    assert [c.value for c in ws[1]] == head + ['Classificação']
+    assert all(ws.cell(r, 12).value for r in range(2, ws.max_row + 1))
+    assert ws.cell(2, 12).value == 'FALHA DE SENSOR'

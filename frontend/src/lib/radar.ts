@@ -1,4 +1,4 @@
-export type View = "inicio" | "importar" | "quadro" | "analise" | "comparar" | "gerar" | "fluxo";
+export type View = "inicio" | "importar" | "quadro" | "analise" | "comparar" | "gerar" | "fluxo" | "resumir";
 export type Route = { view: View; id?: string; day?: string; step?: number };
 export type Daily = {
   date: string;
@@ -82,6 +82,33 @@ export type Learning = {
   trained_at: string | null;
   accuracy: number | null;
   training?: boolean;
+  /** Evolução do acerto medido a cada treino (mais antigo primeiro). */
+  history?: { at: string; accuracy: number; examples: number; classes: number }[];
+  /** Exemplos necessários para medir o acerto (20% separados para teste). */
+  measure_min?: number;
+  /** Uma entrada por planilha finalizada: quanto a ML acertou nela (mais antiga primeiro). */
+  sheets?: SheetReport[];
+};
+export type SheetReport = {
+  id: string;
+  name: string;
+  records: number;
+  cards: number;
+  /** % dos apontamentos em que a classe sugerida na chegada foi mantida pelo analista. */
+  hit_rate: number;
+  corrections: number;
+  /** % dos apontamentos que já chegaram classificados pelo que foi aprendido antes. */
+  from_past: number;
+  unclassified: number;
+  estimated?: boolean;
+  finished_at?: string;
+  examples_before?: number;
+  examples_after?: number;
+  model_before?: number | null;
+  model_after?: number | null;
+  model_ready?: boolean;
+  memory?: number;
+  previous_hit_rate?: number | null;
 };
 export const CONFIDENCE: Record<Confidence, { label: string; hint: string; color: string }> = {
   alta: { label: "Confiança alta", hint: "Regra ou termo único do catálogo confirmado pelo aprendizado, ou relato já corrigido antes pelo analista.", color: "#1f8a63" },
@@ -95,6 +122,12 @@ export type Board = Analysis & {
   classes: string[];
   unclassified_count: number;
   automation: Automation;
+  finished_at?: string | null;
+  /** Próximo passo do Desfazer (Ctrl+Z) / Refazer (Ctrl+Y). */
+  undo?: { action: string; card: string | null; count: number } | null;
+  redo?: { action: string; card: string | null; count: number } | null;
+  /** Ordem manual das caixas por coluna: "falha:<classe>" | "maquina:<coluna>" → ids. */
+  layout?: Record<string, string[]>;
   events: {
     action: string;
     at: string;
@@ -336,7 +369,7 @@ export function readRoute(): Route {
   const [path, search] = window.location.hash.slice(1).split("?");
   const [view, id] = path.split("/");
   return {
-    view: ["inicio", "importar", "quadro", "analise", "comparar", "gerar", "fluxo"].includes(view)
+    view: ["inicio", "importar", "quadro", "analise", "comparar", "gerar", "fluxo", "resumir"].includes(view)
       ? (view as View)
       : "inicio",
     id,

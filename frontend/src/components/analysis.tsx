@@ -377,6 +377,72 @@ function StrategyPanel({ data, onPick }: { data: Analytics; onPick: (category: s
 }
 
 /* ============================ Dashboard ============================ */
+/** "Exportar Excel": o resumo SAP (Pareto/Jack-Knife) ou a planilha resumida por observação. */
+function ExportMenu({ onSummary, resumoHref, fullHref }: { onSummary: () => void; resumoHref: string; fullHref: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const down = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", down);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("pointerdown", down);
+      document.removeEventListener("keydown", key);
+    };
+  }, [open]);
+  return (
+    <div className="export-menu" ref={ref}>
+      <button className="btn excel" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Icon name="sheet" size={16} />
+        Exportar Excel
+        <Icon name="chevron" size={13} />
+      </button>
+      {open && (
+        <div className="export-menu-panel" role="menu">
+          {fullHref && (
+            <a role="menuitem" className="main" href={fullHref} download onClick={() => setOpen(false)}>
+              <Icon name="sheet" size={16} />
+              <span>
+                <b>Planilha completa com Classificação</b>
+                <small>A planilha importada, com todas as linhas e colunas, mais a coluna Classificação que saiu do quadro</small>
+              </span>
+            </a>
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onSummary();
+            }}
+          >
+            <Icon name="chart" size={16} />
+            <span>
+              <b>Resumo da análise</b>
+              <small>Layout SAP com Pareto e crítico-crônico do filtro atual</small>
+            </span>
+          </button>
+          {resumoHref && (
+            <a role="menuitem" href={resumoHref} download onClick={() => setOpen(false)}>
+              <Icon name="sheet" size={16} />
+              <span>
+                <b>Planilha resumida por observação</b>
+                <small>Uma linha por observação única, sem repetições, com a classificação validada</small>
+              </span>
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Dashboard({ analysis, day }: { analysis: Analysis; day?: string }) {
   const [draft, setDraft] = useState<Query>({ ...emptyQuery, ids: analysis.id, from: day || "", to: day || "" });
   const [query, setQuery] = useState(draft);
@@ -426,10 +492,11 @@ export function Dashboard({ analysis, day }: { analysis: Analysis; day?: string 
               <Icon name="pencil" size={16} />
               Montar dashboard
             </button>
-            <button className="btn excel" onClick={() => downloadExcel(query)}>
-              <Icon name="sheet" size={16} />
-              Exportar Excel
-            </button>
+            <ExportMenu
+              onSummary={() => downloadExcel(query)}
+              resumoHref={analysis.mode === "ml" ? "" : apiUrl(`/api/workspace/analyses/${analysis.id}/resumo.xlsx`)}
+              fullHref={analysis.mode === "ml" ? "" : apiUrl(`/api/workspace/analyses/${analysis.id}/completa`)}
+            />
           </div>
         }
       />
