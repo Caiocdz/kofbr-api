@@ -9,7 +9,6 @@ import {
   dateLabel,
   prettyClass,
   SEM_MODO,
-  SEM_DESCRICAO,
   type Board,
   type Card,
   type Column,
@@ -17,7 +16,7 @@ import {
 } from "@/lib/radar";
 import { Icon, Modal, Loading, ErrorNotice, Heading } from "./ui";
 import CatalogEditor from "./catalog";
-import { AutomationSummary, ConfidenceBadge, MoreMenu, ReviewBar, SafeBatchModal, type GroupBy, type Queue } from "./automation";
+import { AutomationSummary, Certainty, ConfidenceBadge, MoreMenu, ReviewBar, SafeBatchModal, inQueue, type GroupBy, type Queue } from "./automation";
 
 /** Coluna do quadro: uma máquina (visão por máquina) ou uma classe de falha (visão por falha). */
 type ViewColumn = Column & { context: string; kind: GroupBy; local?: boolean };
@@ -64,57 +63,59 @@ function Move({
    - a barra superior acompanha a rolagem sem redesenhar o quadro;
    - o seletor de classe é um único menu compartilhado (não um <select> por card);
    - o navegador pula o desenho do que está fora da tela (content-visibility). */
+type DropPos = "before" | "after" | "end";
 type Handlers = {
   act: (action: string, fields?: object) => Promise<boolean>;
   details: (card: Card) => void;
-  toggleMove: (cardId: string) => void;
-  moveTo: (cardId: string, columnId: string, follow: boolean) => void;
   pickClass: (card: Card, anchor: HTMLElement) => void;
   dragStart: (cardId: string) => void;
   dragEnd: () => void;
-  dragOver: (columnId: string) => void;
+  /** Onde o card arrastado vai cair: antes/depois de um card, ou no fim da coluna. */
+  hover: (columnId: string, targetId: string, pos: DropPos) => void;
   dragLeave: () => void;
-  drop: (cardId: string, columnId: string) => void;
+  drop: (cardId: string, columnId: string, targetId: string, pos: DropPos) => void;
   validateColumn: (columnId: string, cardIds: string[]) => void;
   deleteColumn: (columnId: string) => void;
-  validateCards: (cardIds: string[]) => void;
-  toggleGroup: (key: string) => void;
 };
-const CARD_KEYS: (keyof Card)[] = ["id", "name", "validated", "held", "class", "failure_class", "count", "minutes", "column_id", "sample", "confidence", "reason", "events"];
+const CARD_KEYS: (keyof Card)[] = ["id", "name", "validated", "held", "class", "failure_class", "count", "minutes", "column_id", "sample", "confidence", "reason", "events", "ml_pct"];
 const sameCard = (a: Card, b: Card) => a === b || CARD_KEYS.every((k) => a[k] === b[k]);
+/** Quantos cards cada coluna desenha por vez (colunas grandes têm milhares). */
+const PAGE = 40;
+
+/** Texto principal do card: o relato original (o nome da falha já está no topo da coluna). */
+function cardTitle(card: Card) {
+  if (card.grouped_by !== "ml" && card.name && card.name.toUpperCase() !== card.class) return card.name;
+  return card.sample || card.name || "Descrição não informada";
+}
+
+/** Metade de cima do card = soltar antes; metade de baixo = soltar depois. */
+function half(e: React.DragEvent<HTMLElement>): "before" | "after" {
+  const r = e.currentTarget.getBoundingClientRect();
+  return e.clientY < r.top + r.height / 2 ? "before" : "after";
+}
 
 const KanbanCard = memo(
   function KanbanCard({
     card,
-    index,
-    total,
-    prevId,
-    nextId,
+    columnId,
     busy,
     dragging,
+    dropPos,
     flash,
-    moving,
-    moveColumns,
-    machine,
     h,
   }: {
     card: Card;
-    machine: string;
-    index: number;
-    total: number;
-    prevId?: string;
-    nextId?: string;
+    columnId: string;
     busy: boolean;
     dragging: boolean;
+    dropPos: "" | "before" | "after";
     flash: boolean;
-    moving: boolean;
-    moveColumns: ViewColumn[] | null;
     h: Handlers;
   }) {
     return (
       <article
         data-card={card.id}
-        className={`kanban-card conf-${card.confidence} ${card.validated ? "card-validated" : ""} ${dragging ? "dragging" : ""} ${flash ? "flash" : ""}`}
+        className={`kanban-card conf-${card.confidence} ${card.validated ? "card-validated" : ""} ${dragging ? "dragging" : ""} ${flash ? "flash" : ""} ${dropPos ? `drop-${dropPos}` : ""}`}
         draggable={!busy}
         onDragStart={(e) => {
           e.dataTransfer.setData("text/plain", card.id);
@@ -122,322 +123,113 @@ const KanbanCard = memo(
           h.dragStart(card.id);
         }}
         onDragEnd={h.dragEnd}
+        onDragOver={(e) => {
+          if (busy || dragging) return;
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = "move";
+          h.hover(columnId, card.id, half(e));
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          h.drop(e.dataTransfer.getData("text/plain"), columnId, card.id, half(e));
+        }}
       >
-        <div className="card-top">
-          {machine ? (
-            <span className="machine-chip" title={`Máquina: ${machine}`}>
-              <Icon name="machine" size={12} />
-              <span>{machine}</span>
-            </span>
-          ) : (
+        <div className="kc-head">
+          <span className="kc-machine" title={card.machine}>
+            {card.machine || "Máquina não informada"}
+          </span>
+          <Certainty card={card} />
+        </div>
+        <button className="kc-title" title="Ver os apontamentos originais" onClick={() => h.details(card)}>
+          {cardTitle(card)}
+        </button>
+        {card.why && <p className="kc-why">{card.why}</p>}
+        <div className="kc-foot">
+          <span className="kc-meta" title={`${fmt(card.count)} linha(s) do SAP = ${fmt(card.events)} falha(s) real(is)`}>
+            {fmt(card.events)} {card.events === 1 ? "falha" : "falhas"} · {fmt(card.minutes, 0)} min
+          </span>
           <button
-            type="button"
-            className={`class-chip ${card.class === SEM_MODO ? "warn" : card.class === SEM_DESCRICAO ? "muted" : ""} ${card.failure_class ? "manual" : ""}`}
-            title={card.failure_class ? "Classe definida manualmente · clique para trocar" : "Classe automática (coluna M) · clique para trocar"}
-            aria-label={`Classe de falha: ${prettyClass(card.class)}. Alterar`}
+            className="kc-icon"
+            aria-label={`Trocar a falha de ${cardTitle(card)}`}
+            title="Trocar a falha"
             disabled={busy}
             onClick={(e) => h.pickClass(card, e.currentTarget)}
           >
-            <Icon name={card.failure_class ? "pencil" : "target"} size={12} />
-            <span>{prettyClass(card.class)}</span>
+            <Icon name="pencil" size={14} />
           </button>
-          )}
-          <ConfidenceBadge card={card} />
           <button
-            className="inspect-card icon-btn"
-            aria-label={`Enviar ${card.name} ao sino de revisão`}
-            title="Enviar para revisão no sino"
+            className="kc-icon"
+            aria-label={`Deixar ${cardTitle(card)} para depois`}
+            title="Deixar para depois (sino)"
             disabled={busy}
             onClick={() => void h.act("hold", { card_id: card.id })}
           >
-            <Icon name="search" size={16} />
+            <Icon name="bell" size={14} />
           </button>
-        </div>
-        <button className="card-title" onClick={() => h.details(card)}>
-          {card.name}
-        </button>
-        <p className="card-sample">{card.sample || "Sem observação na planilha."}</p>
-        <div className="card-meta">
-          <span title={`${fmt(card.count)} linha(s) do SAP formam ${fmt(card.events)} falha(s) real(is) (mesma O.S. = 1 falha)`}>
-            <Icon name="file" size={13} />
-            {card.events !== card.count
-              ? `${fmt(card.events)} ${card.events === 1 ? "falha" : "falhas"} · ${fmt(card.count)} linhas`
-              : `${fmt(card.count)} ${card.count === 1 ? "falha" : "falhas"}`}
-          </span>
-          <span>
-            <Icon name="clock" size={13} />
-            {fmt(card.minutes, 1)} min
-          </span>
-          <span className="meta-type">{card.types.join(" · ")}</span>
-        </div>
-        <footer>
-          <div className="card-move">
-            <button
-              className="mini-arrow"
-              aria-label={`Mover ${card.name} para a coluna anterior`}
-              title={machine ? "Mudar para a falha da coluna anterior" : "Mover para a coluna anterior"}
-              disabled={busy || index === 0 || !prevId}
-              onClick={() => prevId && h.moveTo(card.id, prevId, true)}
-            >
-              <Icon name="left" size={14} />
-            </button>
-            <button className="text-btn small" onClick={() => h.toggleMove(card.id)}>
-              Mover
-              <Icon name="chevron" size={12} />
-            </button>
-            <button
-              className="mini-arrow"
-              aria-label={`Mover ${card.name} para a próxima coluna`}
-              title={machine ? "Mudar para a falha da próxima coluna" : "Mover para a próxima coluna"}
-              disabled={busy || index === total - 1 || !nextId}
-              onClick={() => nextId && h.moveTo(card.id, nextId, true)}
-            >
-              <Icon name="right" size={14} />
-            </button>
-          </div>
           <button
-            className={`validate-card ${card.validated ? "complete" : ""}`}
-            title={card.validated ? "Desfazer validação" : "Validar card"}
-            aria-label={`${card.validated ? "Desfazer validação" : "Validar"}: ${card.name}`}
+            className={`kc-validate ${card.validated ? "on" : ""}`}
+            title={card.validated ? "Desfazer validação" : "Confirmar que esta falha está correta"}
+            aria-label={`${card.validated ? "Desfazer validação" : "Validar"}: ${cardTitle(card)}`}
             disabled={busy}
             onClick={() => void h.act("validate_card", { card_id: card.id })}
           >
             <Icon name="check" size={13} />
             {card.validated ? "Validado" : "Validar"}
           </button>
-        </footer>
-        {moving && moveColumns && (
-          <Move columns={moveColumns} busy={busy} onMove={(column_id) => h.moveTo(card.id, column_id, true)} />
-        )}
+        </div>
       </article>
     );
   },
   (a, b) =>
     sameCard(a.card, b.card) &&
-    a.machine === b.machine &&
-    a.index === b.index &&
-    a.total === b.total &&
-    a.prevId === b.prevId &&
-    a.nextId === b.nextId &&
+    a.columnId === b.columnId &&
     a.busy === b.busy &&
     a.dragging === b.dragging &&
-    a.flash === b.flash &&
-    a.moving === b.moving &&
-    (!a.moving || a.moveColumns === b.moveColumns),
+    a.dropPos === b.dropPos &&
+    a.flash === b.flash,
 );
-
-/** Na visão por falha, os cards de uma mesma máquina ficam juntos em um único bloco. */
-type MachineBucket = { key: string; name: string; line: string; cards: Card[]; minutes: number; events: number; pending: number };
-const CONF_RANK: Record<string, number> = { baixa: 3, media: 2, manual: 1, alta: 0 };
-
-const MachineGroup = memo(
-  function MachineGroup({
-    group,
-    open,
-    busy,
-    dragging,
-    flashId,
-    onToggle,
-    h,
-  }: {
-    group: MachineBucket;
-    open: boolean;
-    busy: boolean;
-    dragging: boolean;
-    flashId: string;
-    onToggle: (key: string) => void;
-    h: Handlers;
-  }) {
-    const done = group.pending === 0;
-    // A borda mostra o relato pendente que mais precisa de atenção.
-    const worst = group.cards
-      .filter((c) => !c.validated)
-      .reduce<string>((w, c) => (CONF_RANK[c.confidence] > (CONF_RANK[w] ?? -1) ? c.confidence : w), "");
-    const ids = group.cards.map((c) => c.id);
-    return (
-      <article
-        className={`machine-group ${done ? "done" : `attn-${worst}`} ${dragging ? "dragging" : ""} ${ids.includes(flashId) ? "flash" : ""}`}
-        draggable={!busy}
-        onDragStart={(e) => {
-          const payload = `group:${ids.join(",")}`;
-          e.dataTransfer.setData("text/plain", payload);
-          e.dataTransfer.effectAllowed = "move";
-          h.dragStart(payload);
-        }}
-        onDragEnd={h.dragEnd}
-      >
-        <div className="mg-head">
-          <button type="button" className="mg-toggle" aria-expanded={open} onClick={() => onToggle(group.key)}>
-            <span className={`mg-chevron ${open ? "open" : ""}`}>
-              <Icon name="chevron" size={14} />
-            </span>
-            <span className="mg-text">
-              <b title={group.name}>{group.name}</b>
-              <small>
-                {group.line} · {fmt(group.events)} {group.events === 1 ? "falha" : "falhas"} · {fmt(group.minutes, 0)} min
-              </small>
-            </span>
-          </button>
-          <button
-            type="button"
-            className={`mg-validate ${done ? "complete" : ""}`}
-            disabled={busy || done}
-            title={done ? "Todos os relatos desta máquina estão validados" : `Validar ${group.pending} relato(s) desta máquina`}
-            aria-label={done ? `${group.name}: validado` : `Validar ${group.name}`}
-            onClick={() => h.validateCards(group.cards.filter((c) => !c.validated && !c.held).map((c) => c.id))}
-          >
-            <Icon name="check" size={13} />
-            {done ? "OK" : "Validar"}
-          </button>
-        </div>
-        {open && (
-          <ul className="mg-list">
-            {group.cards.map((card) => (
-              <li
-                key={card.id}
-                data-card={card.id}
-                className={`mg-item conf-${card.confidence} ${card.validated ? "ok" : ""} ${flashId === card.id ? "flash" : ""}`}
-                draggable={!busy}
-                onDragStart={(e) => {
-                  e.stopPropagation();
-                  e.dataTransfer.setData("text/plain", card.id);
-                  e.dataTransfer.effectAllowed = "move";
-                  h.dragStart(card.id);
-                }}
-                onDragEnd={h.dragEnd}
-              >
-                <ConfidenceBadge card={card} compact />
-                <button type="button" className="mg-item-title" title="Conferir os apontamentos originais" onClick={() => h.details(card)}>
-                  {card.name}
-                  <small>
-                    {fmt(card.events)} {card.events === 1 ? "falha" : "falhas"} · {fmt(card.minutes, 0)} min
-                  </small>
-                </button>
-                <span className="mg-item-actions">
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    title="Trocar a falha deste relato"
-                    aria-label={`Trocar a falha de ${card.name}`}
-                    disabled={busy}
-                    onClick={(e) => h.pickClass(card, e.currentTarget)}
-                  >
-                    <Icon name="pencil" size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    title="Enviar para revisão no sino"
-                    aria-label={`Enviar ${card.name} ao sino de revisão`}
-                    disabled={busy}
-                    onClick={() => void h.act("hold", { card_id: card.id })}
-                  >
-                    <Icon name="bell" size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    className={`mg-check ${card.validated ? "complete" : ""}`}
-                    title={card.validated ? "Desfazer validação" : "Validar relato"}
-                    aria-label={`${card.validated ? "Desfazer validação" : "Validar"}: ${card.name}`}
-                    disabled={busy}
-                    onClick={() => void h.act("validate_card", { card_id: card.id })}
-                  >
-                    <Icon name="check" size={13} />
-                  </button>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </article>
-    );
-  },
-  (a, b) =>
-    a.open === b.open &&
-    a.busy === b.busy &&
-    a.dragging === b.dragging &&
-    a.flashId === b.flashId &&
-    a.onToggle === b.onToggle &&
-    a.group.key === b.group.key &&
-    a.group.name === b.group.name &&
-    a.group.cards.length === b.group.cards.length &&
-    a.group.cards.every((c, i) => sameCard(c, b.group.cards[i])),
-);
-
-function bucketsOf(cards: Card[], machines: Map<string, Column>): MachineBucket[] {
-  const map = new Map<string, MachineBucket>();
-  for (const c of cards) {
-    const m = machines.get(c.column_id);
-    let g = map.get(c.column_id);
-    if (!g) {
-      g = { key: c.column_id, name: m?.name || "Máquina não informada", line: m?.line || "", cards: [], minutes: 0, events: 0, pending: 0 };
-      map.set(c.column_id, g);
-    }
-    g.cards.push(c);
-    g.minutes += c.minutes;
-    g.events += c.events;
-    if (!c.validated) g.pending += 1;
-  }
-  const list = [...map.values()];
-  for (const g of list) g.cards.sort((x, y) => y.minutes - x.minutes);
-  // Pendentes primeiro; dentro disso, a máquina com mais tempo parado em cima.
-  return list.sort((x, y) => Number(x.pending === 0) - Number(y.pending === 0) || y.minutes - x.minutes);
-}
 
 const KanbanColumn = memo(
   function KanbanColumn({
     col,
-    index,
-    total,
-    prevId,
-    nextId,
     cards,
     allCount,
     busy,
     canDrop,
-    over,
+    overTarget,
     dragId,
     flashId,
-    movingId,
-    moveColumns,
-    machineOf,
-    machines,
-    openKeys,
     h,
   }: {
     col: ViewColumn;
-    machineOf: ((card: Card) => string) | null;
-    machines: Map<string, Column>;
-    openKeys: string;
-    index: number;
-    total: number;
-    prevId?: string;
-    nextId?: string;
     cards: Card[];
     allCount: number;
     busy: boolean;
     canDrop: boolean;
-    over: boolean;
+    /** "" = nada aqui; "<card>|before", "<card>|after" ou "|end". */
+    overTarget: string;
     dragId: string;
     flashId: string;
-    movingId: string;
-    moveColumns: ViewColumn[] | null;
     h: Handlers;
   }) {
-    const byClass = col.kind === "falha";
-    const buckets = useMemo(() => (byClass ? bucketsOf(cards, machines) : []), [byClass, cards, machines]);
-    const open = useMemo(() => new Set(openKeys ? openKeys.split("\n") : []), [openKeys]);
-    const toggle = useCallback((key: string) => h.toggleGroup(`${col.id}|${key}`), [h, col.id]);
-    const minutes = byClass ? cards.reduce((n, c) => n + c.minutes, 0) : 0;
+    const [shown, setShown] = useState(PAGE);
+    const [targetId, targetPos] = overTarget.split("|");
+    const minutes = cards.reduce((n, c) => n + c.minutes, 0);
+    const pending = cards.filter((c) => !c.validated).length;
+    // O card recém-movido aparece mesmo além da página.
+    const limit = Math.max(shown, cards.findIndex((c) => c.id === flashId) + 1);
+    const lastShown = cards[Math.min(limit, cards.length) - 1]?.id || "";
     return (
       <section
         data-column={col.id}
-        className={`kanban-column ${byClass ? "by-class" : ""} ${col.validated ? "validated" : ""} ${over ? "drag-over" : ""}`}
+        className={`kanban-column by-class ${col.validated ? "validated" : ""} ${overTarget ? "drag-over" : ""}`}
         onDragOver={(e) => {
           if (canDrop && !busy) {
             e.preventDefault();
             e.dataTransfer.dropEffect = "move";
-            h.dragOver(col.id);
+            h.hover(col.id, "", "end");
           }
         }}
         onDragLeave={(e) => {
@@ -445,80 +237,54 @@ const KanbanColumn = memo(
         }}
         onDrop={(e) => {
           e.preventDefault();
-          h.drop(e.dataTransfer.getData("text/plain"), col.id);
+          // "Fim da coluna" = logo depois do último card VISÍVEL (nunca escondido além da página).
+          h.drop(e.dataTransfer.getData("text/plain"), col.id, lastShown, lastShown ? "after" : "end");
         }}
       >
         <header className="column-head">
           <div>
-            {byClass ? (
-              <>
-                <h2 title={col.name}>{col.name}</h2>
-                <span className="column-context">
-                  {allCount ? `${fmt(buckets.length)} equipamento(s) · ${fmt(minutes, 0)} min` : col.context}
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="column-context">{col.context}</span>
-                <h2>
-                  {col.name}
-                  <span>{allCount}</span>
-                </h2>
-              </>
-            )}
+            <h2 title={col.name}>{col.name}</h2>
+            <span className="column-context">
+              {allCount
+                ? `${fmt(allCount)} ${allCount === 1 ? "card" : "cards"} · ${fmt(minutes, 0)} min · ${pending ? `${fmt(pending)} a validar` : "tudo validado"}`
+                : col.context}
+            </span>
           </div>
-          {!allCount && (!byClass || col.local) && (
-            <button
-              className="icon-btn delete-column"
-              aria-label={`Excluir coluna ${col.name}`}
-              disabled={busy}
-              onClick={() => h.deleteColumn(col.id)}
-            >
+          {!allCount && col.local && (
+            <button className="icon-btn delete-column" aria-label={`Excluir coluna ${col.name}`} disabled={busy} onClick={() => h.deleteColumn(col.id)}>
               <Icon name="trash" size={16} />
             </button>
           )}
         </header>
         <button
           className={`validate-column ${col.validated ? "complete" : ""}`}
-          disabled={busy || col.validated || !allCount}
-          onClick={() => h.validateColumn(col.id, cards.filter((c) => !c.validated).map((c) => c.id))}
+          disabled={busy || col.validated || !pending}
+          onClick={() => h.validateColumn(col.id, cards.filter((c) => !c.validated && !c.held).map((c) => c.id))}
         >
           <Icon name={col.validated ? "shield" : "check"} size={16} />
-          {col.validated ? (byClass ? "Falha validada" : "Coluna validada") : byClass ? "Validar esta falha" : "Validar coluna inteira"}
+          {col.validated ? "Falha validada" : pending > 1 ? `Validar os ${fmt(pending)} cards` : "Validar esta falha"}
         </button>
         <div className="column-cards">
-          {byClass &&
-            buckets.map((g) => (
-              <MachineGroup
-                key={g.key}
-                group={g}
-                open={open.has(`${col.id}|${g.key}`)}
-                busy={busy}
-                dragging={dragId === `group:${g.cards.map((c) => c.id).join(",")}`}
-                flashId={flashId}
-                onToggle={toggle}
-                h={h}
-              />
-            ))}
-          {!byClass && cards.map((card) => (
+          {cards.slice(0, limit).map((card) => (
             <KanbanCard
               key={card.id}
               card={card}
-              index={index}
-              total={total}
-              prevId={prevId}
-              nextId={nextId}
+              columnId={col.id}
               busy={busy}
               dragging={dragId === card.id}
+              dropPos={targetId === card.id ? (targetPos as "before" | "after") : ""}
               flash={flashId === card.id}
-              moving={movingId === card.id}
-              moveColumns={movingId === card.id ? moveColumns : null}
-              machine={machineOf ? machineOf(card) : ""}
               h={h}
             />
           ))}
-          {!cards.length && (
-            <div className="column-empty">{allCount ? "Nenhum card corresponde à busca." : "Arraste um card para cá."}</div>
+          {cards.length > limit && (
+            <button type="button" className="show-more" onClick={() => setShown(limit + PAGE)}>
+              Mostrar mais {fmt(Math.min(PAGE, cards.length - limit))} (faltam {fmt(cards.length - limit)})
+            </button>
+          )}
+          {overTarget === "|end" && <div className="drop-end">Soltar no fim da coluna</div>}
+          {!cards.length && overTarget !== "|end" && (
+            <div className="column-empty">{allCount ? "Nenhum card corresponde ao filtro." : "Arraste um card para cá."}</div>
           )}
         </div>
       </section>
@@ -526,27 +292,15 @@ const KanbanColumn = memo(
   },
   (a, b) =>
     (a.col === b.col ||
-      (a.col.id === b.col.id &&
-        a.col.validated === b.col.validated &&
-        a.col.name === b.col.name &&
-        a.col.context === b.col.context)) &&
-      a.machineOf === b.machineOf &&
-      a.machines === b.machines &&
-      a.openKeys === b.openKeys &&
-      a.index === b.index &&
-      a.total === b.total &&
-      a.prevId === b.prevId &&
-      a.nextId === b.nextId &&
-      a.allCount === b.allCount &&
-      a.busy === b.busy &&
-      a.canDrop === b.canDrop &&
-      a.over === b.over &&
-      a.dragId === b.dragId &&
-      a.flashId === b.flashId &&
-      a.movingId === b.movingId &&
-      a.moveColumns === b.moveColumns &&
-      a.cards.length === b.cards.length &&
-      a.cards.every((c, i) => sameCard(c, b.cards[i])),
+      (a.col.id === b.col.id && a.col.validated === b.col.validated && a.col.name === b.col.name && a.col.context === b.col.context)) &&
+    a.allCount === b.allCount &&
+    a.busy === b.busy &&
+    a.canDrop === b.canDrop &&
+    a.overTarget === b.overTarget &&
+    a.dragId === b.dragId &&
+    a.flashId === b.flashId &&
+    a.cards.length === b.cards.length &&
+    a.cards.every((c, i) => sameCard(c, b.cards[i])),
 );
 
 /** Barra superior arrastável: acompanha a rolagem sem redesenhar o quadro. */
@@ -742,15 +496,20 @@ export default function Kanban({
   const [typed, setTyped] = useState("");
   const [flash, setFlash] = useState("");
   const [catalogOpen, setCatalogOpen] = useState(false);
-  const [queue, setQueue] = useState<Queue>("");
+  const [queue, setQueueState] = useState<Queue>("");
+  const [pinned, setPinned] = useState<Set<string>>(() => new Set());
+  const setQueue = (q: Queue) => {
+    setQueueState(q);
+    setPinned(new Set());
+  };
   const [batchOpen, setBatchOpen] = useState(false);
-  const [groupBy, setGroupBy] = useState<GroupBy>("falha");
+  // Quadro sempre por falha (a visão por máquina foi removida).
+  const groupBy = "falha" as GroupBy;
   const [extraClasses, setExtraClasses] = useState<string[]>([]);
   const [newFailure, setNewFailure] = useState<string | null>(null);
   const [training, setTraining] = useState(false);
   const [newClass, setNewClass] = useState<{ card: string; value: string } | null>(null);
   const [picker, setPicker] = useState<{ card: Card; rect: DOMRect } | null>(null);
-  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set());
   const deferredSearch = useDeferredValue(search);
   const focusColumn = useCallback((columnId: string, cardId?: string) => {
     requestAnimationFrame(() => {
@@ -860,47 +619,32 @@ export default function Kanban({
     }
   }
   // Referência estável para os handlers: cards memorizados não redesenham à toa.
-  const live = useRef({ act, showDetails, focusColumn, board, drag, setMoving, moving, groupBy });
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- atualiza a referência a cada render, de propósito
+  const live = useRef({ act, showDetails, focusColumn, board, drag, groupBy, reclassify });
+  // Atualiza a referência a cada render, de propósito.
   useLayoutEffect(() => {
-    live.current = { act, showDetails, focusColumn, board, drag, setMoving, moving, groupBy };
+    live.current = { act, showDetails, focusColumn, board, drag, groupBy, reclassify };
   });
   const h = useMemo<Handlers>(
     () => ({
       act: (action, fields) => live.current.act(action, fields),
       details: (card) => void live.current.showDetails(card),
-      toggleMove: (cardId) => live.current.setMoving((m) => (m === cardId ? null : cardId)),
-      moveTo: async (cardId, columnId, follow) => {
-        if (await live.current.act(...moveAction(cardId, columnId))) {
-          live.current.setMoving(null);
-          if (follow) live.current.focusColumn(columnId, cardId);
-        }
-      },
       pickClass: (card, anchor) => setPicker({ card, rect: anchor.getBoundingClientRect() }),
       dragStart: (cardId) => setDrag(cardId),
       dragEnd: () => {
         setDrag("");
         setOver("");
       },
-      dragOver: (columnId) => setOver(columnId),
+      // Só redesenha quando o ponto de soltura muda (dragover dispara dezenas de vezes por segundo).
+      hover: (columnId, targetId, pos) => setOver(`${columnId}\u0001${targetId}|${pos === "end" ? "end" : pos}`),
       dragLeave: () => setOver(""),
-      drop: (cardId, columnId) => {
-        if (cardId.startsWith("group:")) {
-          // Bloco de uma máquina: todos os relatos dela passam para a falha da coluna de destino.
-          const ids = new Set(cardId.slice(6).split(","));
-          const items = (live.current.board?.cards || [])
-            .filter((c) => ids.has(c.id) && c.class !== columnId)
-            .map((c) => ({ card_id: c.id, failure_class: columnId }));
-          if (live.current.groupBy === "falha" && items.length) void live.current.act("set_classes", { items });
-          setDrag("");
-          setOver("");
-          return;
-        }
-        const card = live.current.board?.cards.find((c) => c.id === cardId);
-        const current = card && (live.current.groupBy === "falha" ? card.class : card.column_id);
-        if (card && current !== columnId) void live.current.act(...moveAction(cardId, columnId));
+      drop: (cardId, columnId, targetId, pos) => {
         setDrag("");
         setOver("");
+        const card = live.current.board?.cards.find((c) => c.id === cardId);
+        if (!card || targetId === cardId) return;
+        const place = pos === "before" ? { before_id: targetId } : pos === "after" ? { after_id: targetId } : undefined;
+        if (card.class !== columnId) void live.current.reclassify(cardId, columnId, place);
+        else if (place) void live.current.act("reorder", { card_id: cardId, ...place });
       },
       validateColumn: (columnId, cardIds) => {
         if (live.current.groupBy === "falha") void live.current.act("validate_cards", { card_ids: cardIds });
@@ -910,23 +654,20 @@ export default function Kanban({
         if (live.current.groupBy === "falha") setExtraClasses((list) => list.filter((c) => c !== columnId));
         else void live.current.act("delete_column", { column_id: columnId });
       },
-      validateCards: (cardIds) => {
-        if (cardIds.length) void live.current.act("validate_cards", { card_ids: cardIds });
-      },
-      toggleGroup: (key) =>
-        setOpenGroups((prev) => {
-          const next = new Set(prev);
-          if (!next.delete(key)) next.add(key);
-          return next;
-        }),
     }),
     [],
   );
-  /** Na visão por falha, mover um card para outra coluna = trocar a classe de falha. */
-  function moveAction(cardId: string, columnId: string): [string, object] {
-    if (live.current.groupBy !== "falha") return ["move", { card_id: cardId, column_id: columnId }];
-    const card = live.current.board?.cards.find((c) => c.id === cardId);
-    return ["set_class", { card_id: cardId, failure_class: card && card.auto_class === columnId ? "" : columnId }];
+  /** Trocar a falha de um card (arrastar, lápis ou nova classe). Sempre explícito: corrigir = validar e
+   *  ensinar o ML. Sem posição escolhida, o card vai para o TOPO da coluna de destino e fica visível
+   *  mesmo que o filtro ativo não o inclua mais — nada some da tela. "" volta para a automática. */
+  async function reclassify(cardId: string, label: string, place?: { before_id?: string; after_id?: string }) {
+    const target = label ? (byColumn.get(label) || []).find((c) => c.id !== cardId) : undefined;
+    const position = place || (target ? { before_id: target.id } : {});
+    setPinned((p) => new Set(p).add(cardId));
+    if (await act("set_class", { card_id: cardId, failure_class: label, ...position })) {
+      const moved = board?.cards.find((c) => c.id === cardId);
+      focusColumn(label || moved?.auto_class || "", cardId);
+    }
   }
   const byColumn = useMemo(() => {
     const map = new Map<string, Card[]>();
@@ -966,7 +707,8 @@ export default function Kanban({
       const nMachines = new Set(list.map((c) => c.column_id)).size;
       return {
         id: k,
-        name: prettyClass(k),
+        // Sem classe confiável: a fila de trabalho do analista, sempre a primeira coluna.
+        name: k === SEM_MODO ? "A classificar" : prettyClass(k),
         unit: "",
         line: "",
         kind: "falha" as const,
@@ -976,7 +718,6 @@ export default function Kanban({
       };
     });
   }, [board, groupBy, byColumn, extraClasses]);
-  const openKeyList = useMemo(() => [...openGroups], [openGroups]);
   const segments = useMemo(
     () =>
       viewColumns.map((c) => {
@@ -985,13 +726,6 @@ export default function Kanban({
       }),
     [viewColumns, byColumn],
   );
-  const movingColumn = useMemo(() => {
-    if (!board || !moving) return null;
-    const card = board.cards.find((c) => c.id === moving);
-    if (!card) return null;
-    const current = groupBy === "falha" ? card.class : card.column_id;
-    return viewColumns.filter((c) => c.id !== current);
-  }, [board, moving, viewColumns, groupBy]);
   async function train() {
     setTraining(true);
     try {
@@ -1103,15 +837,10 @@ export default function Kanban({
         busy={busy}
         search={search}
         onSearch={setSearch}
+        onToggleMl={() => void act("use_ml", { on: !board.use_ml })}
         onBatch={() => {
           setError("");
           setBatchOpen(true);
-        }}
-        groupBy={groupBy}
-        onGroupBy={(g) => {
-          setGroupBy(g);
-          setMoving(null);
-          boardRef.current?.scrollTo({ left: 0 });
         }}
         more={
           <MoreMenu>
@@ -1157,7 +886,7 @@ export default function Kanban({
           else if (e.clientX > r.right - 90) el.scrollLeft += 22;
         }}
       >
-        {columns.map((col, index) => {
+        {columns.map((col) => {
           const all = byColumn.get(col.id) || [];
           const term = deferredSearch.toLocaleLowerCase();
           const visible =
@@ -1165,7 +894,8 @@ export default function Kanban({
               ? all
               : all.filter(
                   (c) =>
-                    (!queue || c.confidence === queue) &&
+                    pinned.has(c.id) ||
+                    inQueue(c, queue) &&
                     (!term ||
                       `${c.name} ${c.sample} ${c.class} ${col.name} ${col.context} ${machineOf(c)}`.toLocaleLowerCase().includes(term)),
                 );
@@ -1175,22 +905,13 @@ export default function Kanban({
             <KanbanColumn
               key={col.id}
               col={col}
-              index={index}
-              total={columns.length}
-              prevId={columns[index - 1]?.id}
-              nextId={columns[index + 1]?.id}
               cards={visible}
               allCount={all.length}
               busy={busy}
               canDrop={!!drag}
-              over={over === col.id}
-              dragId={groupBy === "falha" && drag.startsWith("group:") ? drag : inColumn(drag)}
+              overTarget={over.startsWith(`${col.id}\u0001`) ? over.slice(col.id.length + 1) : ""}
+              dragId={inColumn(drag)}
               flashId={inColumn(flash)}
-              movingId={inColumn(moving || "")}
-              moveColumns={inColumn(moving || "") ? movingColumn : null}
-              machineOf={groupBy === "falha" ? machineOf : null}
-              machines={machines}
-              openKeys={openKeyList.filter((k) => k.startsWith(`${col.id}|`)).join("\n")}
               h={h}
             />
           );
@@ -1223,7 +944,7 @@ export default function Kanban({
           onPick={(value) => {
             const cardId = picker.card.id;
             setPicker(null);
-            void act("set_class", { card_id: cardId, failure_class: value });
+            void reclassify(cardId, value);
           }}
           onNew={() => {
             setNewClass({ card: picker.card.id, value: "" });
@@ -1334,7 +1055,8 @@ export default function Kanban({
             className="stack-form"
             onSubmit={async (e) => {
               e.preventDefault();
-              if (await act("set_class", { card_id: newClass.card, failure_class: newClass.value })) setNewClass(null);
+              setNewClass(null);
+              await reclassify(newClass.card, newClass.value.trim().toUpperCase());
             }}
           >
             <p className="helper">

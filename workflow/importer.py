@@ -41,7 +41,9 @@ def iso_date(value):
 
 
 def parse_file(data, filename, strict=True, keep_original=True, skipped=None):
-    """Lê a planilha. strict=True recusa o arquivo inteiro se houver linha inválida (tela Importar);
+    """Lê a planilha. strict=True (tela Importar) tolera células em branco — minutos vazios viram 0,
+    linha/equipamento vazios viram "Não informado" (sempre em card próprio) e linhas sem data são
+    puladas com aviso —, mas recusa o arquivo inteiro se houver valor preenchido inválido;
     strict=False pula a linha e a registra em `skipped` como (linha, motivo) — fluxo único.
     keep_original=False não guarda as células originais (planilhas grandes)."""
     workbook = None
@@ -76,12 +78,19 @@ def parse_file(data, filename, strict=True, keep_original=True, skipped=None):
             if len(mapping.values()) != len(set(mapping.values())):
                 raise ValueError('Há duas colunas com o mesmo significado. Renomeie ou remova a coluna duplicada.')
             records, errors, warnings = [], [], []
+            blanks = defaultdict(int)
             for number, row in enumerate(rows, row_number + 1):
                 if not any(v is not None and str(v).strip() for v in row):
                     continue
                 rec = {field: row[i] if i < len(row) else None for i, field in mapping.items()}
                 try:
+                    if strict and _blank(rec.get('data_inicio')):
+                        blanks['data'] += 1
+                        continue
                     rec['data_inicio'] = iso_date(rec.get('data_inicio'))
+                    if strict and _blank(rec.get('minutos_parada')):
+                        blanks['minutos'] += 1
+                        rec['minutos_parada'] = 0
                     minutes = _to_float(rec.get('minutos_parada'))
                     if minutes is None or not math.isfinite(minutes) or minutes < 0:
                         raise ValueError('minutos de parada devem ser um número maior ou igual a zero')
@@ -89,7 +98,13 @@ def parse_file(data, filename, strict=True, keep_original=True, skipped=None):
                     for field in set(ALIASES.values()) - {'data_inicio', 'minutos_parada'}:
                         rec[field] = str(rec.get(field) or '').strip()
                     if not rec['linha'] or not rec['equipamento']:
-                        raise ValueError('linha e equipamento são obrigatórios')
+                        if not strict:
+                            raise ValueError('linha e equipamento são obrigatórios')
+                        blanks['contexto'] += 1
+                        # Sem linha/equipamento o contexto é desconhecido: nunca agrupa com outros.
+                        rec['sem_contexto'] = True
+                        rec['linha'] = rec['linha'] or 'Não informada'
+                        rec['equipamento'] = rec['equipamento'] or 'Não informado'
                     rec['centro'] = rec['centro'] or 'Não informada'
                     rec['tipo_parada'] = rec['tipo_parada'] or 'Não informado'
                     rec['id'] = len(records) + 1
@@ -110,6 +125,13 @@ def parse_file(data, filename, strict=True, keep_original=True, skipped=None):
                 warnings.append(f'{len(skipped)} linha(s) ignorada(s) por dados inválidos: '
                                 + '; '.join(f'linha {n} ({why})' for n, why in skipped[:10])
                                 + ('…' if len(skipped) > 10 else '') + '.')
+            if blanks['data']:
+                warnings.append(f'{blanks["data"]} linha(s) sem data foram ignoradas (não há como situá-las em um dia).')
+            if blanks['minutos']:
+                warnings.append(f'{blanks["minutos"]} linha(s) sem minutos de parada foram importadas com 0 minuto.')
+            if blanks['contexto']:
+                warnings.append(f'{blanks["contexto"]} linha(s) sem linha ou equipamento foram importadas como '
+                                '"Não informado", cada uma em um card próprio para revisão.')
             if errors:
                 raise ValueError('Corrija a planilha antes de importar. ' + ' '.join(errors))
             if not records:
@@ -126,6 +148,10 @@ def parse_file(data, filename, strict=True, keep_original=True, skipped=None):
             workbook.close()
 
 
+def _blank(value):
+    return value is None or not str(value).strip()
+
+
 def content_hash(records):
     fields = sorted(set(ALIASES.values()))
     # Ordem das linhas, nome do arquivo e metadados do Excel não alteram a identidade.
@@ -133,10 +159,57 @@ def content_hash(records):
     return hashlib.sha256('\n'.join(lines).encode()).hexdigest()
 
 
+# Abaixo dessa certeza o modelo não decide o agrupamento: vale a semelhança do texto.
+ML_GROUP_MIN = 50.0
+# Muda quando os campos de ML gravados nos registros mudam (2 = ml_probs): força reanotar os cards abertos.
+ML_SCHEMA = 2
+
+
+def ml_annotate(records):
+    """Classifica cada apontamento com o modelo de ML do projeto (apontamentos_ml), que aprende
+    com as planilhas de treino e com cada card validado no quadro. Grava em cada registro
+    `ml_class` e `ml_conf` (certeza, 0–100; 100 = relato que o analista já validou antes).
+    Sem modelo disponível, a importação segue só com o agrupamento por semelhança."""
+    from . import apontamentos_ml as aml
+    from . import classify as fc
+    keys = {r['id']: aml.normalize_text(r.get('observacao_raw')) for r in records}
+    try:
+        preds = aml.predict([k for k in keys.values() if aml.has_content(k)], fresh=False)
+    except Exception:
+        return None
+    for r in records:
+        for field in ('ml_class', 'ml_conf', 'ml_detail', 'ml_words', 'ml_example', 'ml_probs'):
+            r.pop(field, None)
+        p = preds.get(keys[r['id']])
+        if not p:
+            continue
+        # Chance (%) das classes mais prováveis: dá a % de acerto de QUALQUER classe que o card mostre.
+        r['ml_probs'] = ({p['classe']: 100.0} if p['confianca'] is None else
+                         {t['classe']: float(t['confianca']) for t in p.get('top3') or []})
+        if not p['classe'] or p['classe'] in fc.UNCLASSIFIED:
+            continue
+        r['ml_class'] = p['classe']
+        r['ml_conf'] = 100.0 if p['confianca'] is None else float(p['confianca'])
+        if p['detalhe']:
+            r['ml_detail'] = p['detalhe']
+        if p.get('palavras'):
+            r['ml_words'] = p['palavras']
+        if p.get('exemplo'):
+            r['ml_example'] = p['exemplo']
+    return aml.version() or 'sem-versao'
+
+
+def _ml_group(rec):
+    return rec.get('ml_class') if rec.get('ml_conf', 0) >= ML_GROUP_MIN and rec.get('observacao_normalizada') else None
+
+
 def group_records(records, min_similarity=0.80):
+    from . import classify as fc
     buckets = defaultdict(list)
     for rec in records:
         key = tuple(_norm_header(rec.get(k)) for k in CONTEXT_FIELDS)
+        if rec.get('sem_contexto'):
+            key += (rec['id'],)
         buckets[key].append(rec)
     cards = []
     columns, col_map = [], {}
@@ -148,6 +221,19 @@ def group_records(records, min_similarity=0.80):
             col_map[col_key] = col_id
             columns.append({'id': col_id, 'name': first['equipamento'], 'unit': first['centro'], 'line': first['linha'], 'validated': False})
         col_id = col_map[col_key]
+        # 1) O modelo de ML agrupa pelo modo de falha que reconheceu (só dentro do mesmo contexto).
+        by_class = defaultdict(list)
+        for rec in bucket:
+            if _ml_group(rec):
+                by_class[rec['ml_class']].append(rec)
+        for label, members in by_class.items():
+            cards.append({'id': str(uuid4()), 'column_id': col_id, 'name': fc.pretty(label),
+                          'record_ids': [r['id'] for r in members], 'avg_similarity': 1.0, 'grouped_by': 'ml',
+                          'validated': False, 'held': False})
+        # 2) O que o modelo não reconheceu com certeza é agrupado pela semelhança do texto.
+        bucket = [r for r in bucket if not _ml_group(r)]
+        if not bucket:
+            continue
         exact = defaultdict(list)
         for rec in bucket:
             # Uma observação vazia nunca é evidência de redundância.
@@ -194,7 +280,10 @@ def group_records(records, min_similarity=0.80):
 
 
 def new_document(records, filename, warnings):
+    version = ml_annotate(records)
+    if not version:
+        warnings = warnings + ['Modelo de machine learning indisponível: agrupamento feito só pela semelhança do texto.']
     columns, cards = group_records(records)
-    return {'id': str(uuid4()), 'revision': 1, 'name': filename.rsplit('.', 1)[0], 'filename': filename,
+    return {'id': str(uuid4()), 'revision': 1, 'ml_version': version, 'ml_schema': ML_SCHEMA, 'name': filename.rsplit('.', 1)[0], 'filename': filename,
             'created_at': datetime.now().astimezone().isoformat(), 'updated_at': datetime.now().astimezone().isoformat(),
             'records': records, 'columns': columns, 'cards': cards, 'warnings': warnings, 'events': []}

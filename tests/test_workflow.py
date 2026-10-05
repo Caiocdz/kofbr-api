@@ -29,6 +29,11 @@ def client(tmp_path, monkeypatch):
     # Nos testes o treino é chamado explicitamente (sem threads em segundo plano).
     monkeypatch.setattr(learning, 'retrain_in_background', lambda build: None)
     monkeypatch.setenv('KOFBR_WORKFLOW_DB', 'sqlite')
+    # Sem pasta de treino o quadro agrupa só por semelhança (o teste do ML liga a pasta própria).
+    from workflow import apontamentos_ml
+    monkeypatch.setenv('KOFBR_ML_TRAIN_DIR', str(tmp_path / 'sem-treino'))
+    monkeypatch.setattr(apontamentos_ml, 'retrain_soon', lambda delay=20.0: None)
+    apontamentos_ml._state.update(model=None, info=None, fingerprint=None, training=False)
     app = create_app()
     app.config['TESTING'] = True
     with app.test_client() as client:
@@ -115,7 +120,7 @@ def test_duplicate_content_and_invalid_sheet(client):
     duplicate = upload(client, rows, 'renomeada.xlsx')
     assert duplicate.status_code == 409 and duplicate.json['existing_id'] == first['id']
     assert len(client.get('/api/workspace/analyses').json) == 1
-    for field, value in [(1, '30/02/2026'), (6, -1), (6, 'abc'), (3, '')]:
+    for field, value in [(1, '30/02/2026'), (6, -1), (6, 'abc')]:
         wrong = deepcopy(rows)
         wrong[0][field] = value
         result = upload(client, wrong)
@@ -124,6 +129,28 @@ def test_duplicate_content_and_invalid_sheet(client):
     result = client.post('/api/workspace/import', data={'file': (spreadsheet([['x']], ['Nome']), 'errada.xlsx')})
     assert result.status_code == 400 and 'Cabeçalhos' in result.json['erro']
     assert len(client.get('/api/workspace/analyses').json) == 1
+
+
+def test_blank_cells_import_anyway(client):
+    rows = [['U1', '2026-09-30', 'L1', 'Bomba', 'Mecânica', 'Vazamento', 4],
+            ['U1', '2026-09-30', 'L1', 'Bomba', 'Mecânica', 'Vazamento', None],
+            ['U1', '2026-09-30', None, None, 'Mecânica', 'Vazamento', 3],
+            ['U1', '2026-09-30', 'L1', None, 'Mecânica', 'Vazamento', 2],
+            ['U1', None, 'L1', 'Bomba', 'Mecânica', 'Vazamento', 1],
+            [None, '2026-09-30', 'L1', 'Bomba', None, None, 5]]
+    result = upload(client, rows)
+    assert result.status_code == 201, result.json
+    board = result.json
+    doc = store.get(board['id'])
+    assert len(doc['records']) == 5
+    assert [r['minutos_parada'] for r in doc['records']][:2] == [4, 0]
+    loose = [r for r in doc['records'] if r.get('sem_contexto')]
+    assert len(loose) == 2 and {r['equipamento'] for r in loose} == {'Não informado'}
+    # Mesmo texto, mas sem contexto conhecido: cada um fica em card próprio.
+    for r in loose:
+        assert any(c['record_ids'] == [r['id']] for c in doc['cards'])
+    warnings = ' '.join(doc['warnings'])
+    assert 'sem data' in warnings and 'sem minutos' in warnings and 'sem linha ou equipamento' in warnings
 
 
 def test_compare_missing_machines_zero_baseline_and_filters(client):
@@ -342,32 +369,6 @@ def test_confidence_memory_and_safe_batch(client):
     assert card['class'] == 'FALHA DE MOTOR ELÉTRICO' and card['confidence'] == 'alta' and card['source'] == 'memoria'
 
 
-def test_machine_learning_learns_context_from_validated_work(client):
-    # O catálogo não conhece "carrossel". O analista classifica alguns relatos e valida;
-    # o modelo aprende e reconhece um relato NOVO (não idêntico) pelo contexto.
-    known = ['SENSOR COM DEFEITO', 'FALHA NO SENSOR DE SAIDA', 'SENSOR SUJO', 'TROCA DO SENSOR INDUTIVO',
-             'ROLAMENTO QUEBRADO', 'ROLAMENTO ESTOURADO', 'TROCA DE ROLAMENTO', 'ROLAMENTO COM RUIDO',
-             'MOTOR AQUECENDO', 'MOTOR DESARMOU', 'TROCA DO MOTOR', 'MOTOR COM RUIDO']
-    novel = ['TRAVAMENTO DO CARROSSEL', 'CARROSSEL TRAVADO NA SAIDA', 'CARROSSEL PRESO', 'AJUSTE DO CARROSSEL TRAVANDO',
-             'CARROSSEL DESALINHADO', 'CARROSSEL TRAVOU NA ENTRADA', 'LIMPEZA DO CARROSSEL TRAVADO', 'CARROSSEL BATENDO']
-    rows = [['U1', '13/09/2026', 'L1', 'ENCHEDORA', 'P.EQ.LINHA', t, 10] for t in known + novel]
-    board = upload(client, rows).json
-    assert client.get('/api/workspace/learning').json['ready'] is False
-    for card in board['cards']:
-        if card['class'] == 'SEM MODO DE FALHA IDENTIFICADO':
-            board = action(client, board, 'set_class', card_id=card['id'], failure_class='FALHA DE CARROSSEL').json
-    board = validate_all(client, board)
-    assert all(c.get('validated_class') or c.get('failure_class') for c in board['cards'])
-    info = client.post('/api/workspace/learning/train').json
-    assert info['ready'] and info['examples'] >= 20 and info['classes'] == 4
-    new = upload(client, [['U1', '14/09/2026', 'L1', 'ENCHEDORA', 'P.EQ.LINHA', 'carrossel travando de novo', 8]], 'dia2.xlsx').json
-    card = new['cards'][0]
-    assert card['class'] == 'FALHA DE CARROSSEL' and card['source'] == 'aprendizado' and 'aprendizado' in card['reason']
-    # A classe validada fica congelada: retreinar não muda o que já foi validado.
-    assert client.get(f'/api/workspace/analytics?ids={board["id"]}').json['failures'][0]['key'] in {
-        'FALHA DE CARROSSEL', 'FALHA DE SENSOR', 'FALHA DE ROLAMENTO', 'FALHA DE MOTOR'}
-
-
 # ---------- Gerar planilha de apontamentos (ML) ----------
 def ml_folder(tmp_path):
     folder = tmp_path / 'treino'
@@ -538,3 +539,90 @@ def test_pipeline_accept_high_needs_confirmation(client, ml):
     if high['total']:
         result = client.post(url, json={'confirm': True}).json
         assert result['progress']['validados'] == high['total']
+
+
+def test_kanban_groups_with_ml_shows_certainty_and_learns(client, ml):
+    ml.train(force=True)
+    rows = [['U1', '30/09/2026', 'L1', 'Enchedora', 'Mecânica', 'sensor com defeito na posicao 3 da maquina', 5],
+            ['U1', '30/09/2026', 'L1', 'Enchedora', 'Mecânica', 'sensor com defeito na posicao 9 da maquina', 4],
+            # Mesma falha, outro contexto: nunca no mesmo card.
+            ['U1', '30/09/2026', 'L2', 'Enchedora', 'Mecânica', 'sensor com defeito na posicao 3 da maquina', 2],
+            # Frase parecida, outra causa: outro card.
+            ['U1', '30/09/2026', 'L1', 'Enchedora', 'Mecânica', 'rolamento com defeito na posicao 3 da maquina', 3]]
+    board = upload(client, rows).json
+    by_line = {}
+    for card in board['cards']:
+        col = next(c for c in board['columns'] if c['id'] == card['column_id'])
+        by_line.setdefault(col['line'], []).append(card)
+    l1 = {c['class']: c for c in by_line['L1']}
+    assert set(l1) == {'FALHA DE SENSOR', 'FALHA DE ROLAMENTO'}
+    sensor = l1['FALHA DE SENSOR']
+    # Padrão: classe do catálogo; o ML só dá a % de acerto de cada card (todo card tem %).
+    assert sensor['count'] == 2 and sensor['grouped_by'] == 'ml' and sensor['source'] == 'componente'
+    assert 0 < sensor['ml_pct'] <= 100 and '%' in sensor['reason']
+    assert all(c['ml_pct'] is not None and c['confidence'] in ('alta', 'media', 'baixa') for c in board['cards'])
+    assert [c['count'] for c in by_line['L2']] == [1]
+    assert board['use_ml'] is False
+    # Botão "Usar machine learning": o ML refaz a classificação; desligar volta ao catálogo.
+    on = action(client, board, 'use_ml', on=True).json
+    assert on['use_ml'] is True and on['revision'] == board['revision'] + 1
+    assert next(c for c in on['cards'] if c['id'] == sensor['id'])['source'] == 'ml'
+    off = action(client, on, 'use_ml', on=False).json
+    assert off['use_ml'] is False
+    assert {c['id']: c['class'] for c in off['cards']} == {c['id']: c['class'] for c in board['cards']}
+    board = off
+
+    # Validar ensina o modelo: o relato volta, em outra planilha, com 100% (já validado por pessoa).
+    validate_all(client, board)
+    assert any(e['relato_norm'] == 'rolamento com defeito na posicao 3 da maquina' and e['classe'] == 'FALHA DE ROLAMENTO'
+               for e in store.ml_examples())
+    ml.train()
+    again = upload(client, [['U9', '01/10/2026', 'L7', 'Rotuladora', 'Mecânica',
+                             'Rolamento com defeito na posição 3 da máquina', 1]], 'outra.xlsx').json
+    assert again['cards'][0]['class'] == 'FALHA DE ROLAMENTO' and again['cards'][0]['ml_pct'] == 100
+
+
+def test_drag_between_cards_keeps_position(client):
+    rows = [['U1', '30/09/2026', 'L1', 'Bomba', 'Mecânica', t, 4] for t in ('vazamento no selo', 'motor queimado', 'correia rompida')]
+    board = upload(client, rows).json
+    ids = [c['id'] for c in board['cards']]
+    moved = action(client, board, 'reorder', card_id=ids[2], before_id=ids[0])
+    assert moved.status_code == 200, moved.json
+    assert [c['id'] for c in moved.json['cards']] == [ids[2], ids[0], ids[1]]
+    # Trocar de falha soltando depois de um card: classe nova e posição escolhida.
+    board = action(client, moved.json, 'set_class', card_id=ids[0], failure_class='FALHA DE MOTOR', after_id=ids[1]).json
+    assert [c['id'] for c in board['cards']] == [ids[2], ids[1], ids[0]]
+    assert board['cards'][2]['class'] == 'FALHA DE MOTOR'
+    assert action(client, board, 'reorder', card_id=ids[0]).status_code == 400
+
+
+
+def test_uncertain_goes_to_triage_old_board_gets_ml_and_fix_validates(client, ml, tmp_path, monkeypatch):
+    import os
+    folder = os.environ['KOFBR_ML_TRAIN_DIR']
+    # Análise importada sem modelo (como as antigas): nada de ML nos registros.
+    monkeypatch.setenv('KOFBR_ML_TRAIN_DIR', str(tmp_path / 'nao-existe'))
+    rows = [['U1', '30/09/2026', 'L1', 'Enchedora', 'Mecânica', 'sensor com defeito na posicao 4 da maquina', 5],
+            ['U1', '30/09/2026', 'L1', 'Enchedora', 'Mecânica', 'operador ajustou parametro do lote azul', 3]]
+    board = upload(client, rows).json
+    assert all(c['ml_pct'] is None for c in board['cards'])
+    # Com o modelo disponível, abrir o quadro aplica o ML aos cards abertos.
+    monkeypatch.setenv('KOFBR_ML_TRAIN_DIR', folder)
+    fresh = client.get(f'/api/workspace/analyses/{board["id"]}').json
+    assert fresh['revision'] == board['revision'] + 1
+    by_text = {c['sample']: c for c in fresh['cards']}
+    sensor = by_text['sensor com defeito na posicao 4 da maquina']
+    assert sensor['class'] == 'FALHA DE SENSOR' and sensor['ml_pct'] >= 50 and 'sensor' in sensor['why']
+    # Sem classe confiável (ML abaixo de 50% e nenhum termo do catálogo): vai para "A classificar",
+    # não inventa falha, e mostra a sugestão do ML.
+    rec = {'id': 1, 'observacao_raw': 'operador ajustou parametro do lote azul', 'equipamento': 'Enchedora',
+           'ml_class': 'FALHA DE SENSOR', 'ml_conf': 31.0, 'ml_words': ['parametro']}
+    card = {'id': 'c', 'record_ids': [1]}
+    info = service.card_info(card, service.details_for([rec], service.catalog(), {}), {1: rec})
+    assert info['label'] == 'SEM MODO DE FALHA IDENTIFICADO' and info['confidence'] == 'baixa'
+    assert info['suggestion'] == 'FALHA DE SENSOR' and '31%' in info['why']
+    other = by_text['operador ajustou parametro do lote azul']
+    # Corrigir = validar: o card movido pelo analista já fica validado.
+    fixed = action(client, fresh, 'set_class', card_id=other['id'], failure_class='FALHA DE AJUSTE').json
+    moved = next(c for c in fixed['cards'] if c['id'] == other['id'])
+    assert moved['class'] == 'FALHA DE AJUSTE' and moved['validated'] and moved['why'] == 'definida por você'

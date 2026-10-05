@@ -55,7 +55,17 @@ def upload():
 
 @bp.route('/analyses/<analysis_id>')
 def detail(analysis_id):
-    return jsonify(service.board(document(analysis_id)))
+    return jsonify(service.board(fresh(document(analysis_id))))
+
+
+def fresh(doc):
+    """Aplica o modelo de ML atual aos cards abertos (análise antiga ou modelo retreinado) e grava."""
+    previous = doc['revision']
+    if service.refresh_ml(doc):
+        doc['revision'] = previous + 1
+        if not store.save(doc, previous):
+            return store.get(doc['id']) or doc
+    return doc
 
 
 @bp.route('/analyses/<analysis_id>/cards/<card_id>')
@@ -88,10 +98,9 @@ def action(analysis_id):
     elif body.get('action') == 'set_classes':
         service.learn(updated, {str((i or {}).get('card_id')) for i in body.get('items') or []})
     if body.get('action') in LEARNING_ACTIONS:
-        # O modelo aprende com cada validação/correção, em segundo plano.
-        from . import learning
-        learning.retrain_in_background(service.training_rows)
-    return jsonify(service.board(updated))
+        # O modelo calibrado aprende com cada validação/correção (retreina em segundo plano).
+        service.teach_ml(doc, updated)
+    return jsonify(service.board(fresh(updated)))
 
 
 LEARNING_ACTIONS = {'set_class', 'set_classes', 'validate_card', 'validate_column', 'validate_all',

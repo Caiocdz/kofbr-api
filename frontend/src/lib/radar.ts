@@ -59,6 +59,12 @@ export type Card = {
   validated_by?: string;
   suggestion?: string;
   frozen?: boolean;
+  /** Chance (%) de a classe estar correta segundo o modelo de ML; null quando o ML não decidiu. */
+  ml_pct?: number | null;
+  /** Motivo curto da classe (palavras que pesaram, regra do catálogo ou "definida por você"). */
+  why?: string;
+  machine?: string;
+  grouped_by?: "ml" | "texto";
 };
 export type Confidence = "alta" | "media" | "baixa" | "manual";
 export type Automation = {
@@ -84,16 +90,18 @@ export type Learning = {
   training?: boolean;
 };
 export const CONFIDENCE: Record<Confidence, { label: string; hint: string; color: string }> = {
-  alta: { label: "Confiança alta", hint: "Regra ou termo único do catálogo confirmado pelo aprendizado, ou relato já corrigido antes pelo analista.", color: "#1f8a63" },
-  media: { label: "Confiança média", hint: "O relato cita mais de um item, teve correção de digitação ou o card mistura classes. Dê uma olhada.", color: "#e89a1c" },
-  baixa: { label: "Revisar", hint: "Nem o catálogo nem o aprendizado reconheceram. Precisa do analista.", color: "#e0101f" },
-  manual: { label: "Pelo analista", hint: "Classe escolhida por uma pessoa. Fica na memória para os próximos dias.", color: "#3a67c4" },
+  alta: { label: "Confiança alta", hint: "Machine learning com 85% ou mais de chance de acerto (medida em relatos fora do treino), ou relato já validado antes por uma pessoa.", color: "#1f8a63" },
+  media: { label: "Confiança média", hint: "Chance de acerto entre 50% e 84%: confira antes de validar.", color: "#e89a1c" },
+  baixa: { label: "Revisar", hint: "Menos de 50% de chance de acerto, ou nem o ML nem o catálogo reconheceram. Precisa do analista.", color: "#e0101f" },
+  manual: { label: "Pelo analista", hint: "Cards em que você (ou outro analista) trocou a falha à mão. Não depende mais do ML e entra no treino.", color: "#3a67c4" },
 };
 export type Board = Analysis & {
   columns: Column[];
   cards: Card[];
   classes: string[];
   unclassified_count: number;
+  /** true = o machine learning refez a classificação (botão "Usar Machine Learning"). */
+  use_ml?: boolean;
   automation: Automation;
   events: {
     action: string;

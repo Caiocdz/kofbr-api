@@ -7009,3 +7009,213 @@ tbody tr:hover td {
     grid-template-columns: 1fr;
   }
 }
+
+/* ===================== Certeza do ML e filtros de risco em destaque ===================== */
+.queue-tabs button.q-alta { background: #e3f5ec; border-color: #1f8a63; color: #146446; }
+.queue-tabs button.q-media { background: #fff1d9; border-color: #e89a1c; color: #8a5600; }
+.queue-tabs button.q-baixa { background: #fde3e5; border-color: #e0101f; color: #a50a16; }
+.queue-tabs button.q-manual { background: #e6eefc; border-color: #3a67c4; color: #24488f; }
+.review-bar .queue-tabs button.q-alta,
+.review-bar .queue-tabs button.q-media,
+.review-bar .queue-tabs button.q-baixa,
+.review-bar .queue-tabs button.q-manual { border-width: 2px; border-style: solid; font-weight: 800; }
+.review-bar .queue-tabs button.q-alta { border-color: #1f8a63; }
+.review-bar .queue-tabs button.q-media { border-color: #e89a1c; }
+.review-bar .queue-tabs button.q-baixa { border-color: #e0101f; }
+.review-bar .queue-tabs button.q-manual { border-color: #3a67c4; }
+.queue-tabs button.q-alta i, .queue-tabs button.q-media i,
+.queue-tabs button.q-baixa i, .queue-tabs button.q-manual i { width: 10px; height: 10px; }
+.queue-tabs button.q-alta.on, .review-bar .queue-tabs button.q-alta.on { background: #1f8a63; color: #fff; }
+.queue-tabs button.q-media.on, .review-bar .queue-tabs button.q-media.on { background: #e89a1c; color: #fff; }
+.queue-tabs button.q-baixa.on, .review-bar .queue-tabs button.q-baixa.on { background: #e0101f; color: #fff; }
+.queue-tabs button.q-manual.on, .review-bar .queue-tabs button.q-manual.on { background: #3a67c4; color: #fff; }
+.queue-tabs button.on i { background: #fff !important; }
+
+.kanban-card.conf-alta:not(.card-validated) { box-shadow: inset 4px 0 0 #1f8a63, var(--shadow-sm); }
+.kanban-card.conf-media:not(.card-validated) { box-shadow: inset 4px 0 0 #e89a1c, var(--shadow-sm); }
+.kanban-card.conf-baixa:not(.card-validated) { box-shadow: inset 4px 0 0 #e0101f, var(--shadow-sm); }
+
+.card-certainty {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 4px;
+  margin: 8px 0 4px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink-2);
+}
+.card-certainty b { font-size: 22px; line-height: 1; font-weight: 900; letter-spacing: -0.02em; }
+.card-certainty span { font-size: 11px; font-weight: 700; line-height: 1.2; }
+.card-certainty i { grid-column: 1 / -1; height: 5px; border-radius: 999px; background: #0000001a; overflow: hidden; }
+.card-certainty i em { display: block; height: 100%; border-radius: inherit; background: currentColor; }
+.card-certainty.conf-alta { background: #e3f5ec; color: #146446; }
+.card-certainty.conf-media { background: #fff1d9; color: #8a5600; }
+.card-certainty.conf-baixa { background: #fde3e5; color: #a50a16; }
+.card-certainty.conf-manual { background: #e6eefc; color: #24488f; }
+
+/* ===================== Kanban limpo: card único, bordas por confiança, arrastar com posição ===================== */
+.kanban-column.by-class .column-cards { gap: 10px; }
+.kanban-card {
+  content-visibility: visible; /* a coluna já desenha só 40 por vez; precisamos da linha de soltura fora do card */
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--line-strong);
+  border-radius: 14px;
+  padding: 12px 12px 10px 12px;
+  box-shadow: var(--shadow-sm);
+}
+.kanban-card:hover { transform: none; border-color: var(--line-strong); box-shadow: var(--shadow); }
+.kanban-card.conf-alta, .kanban-card.conf-alta:not(.card-validated) { border-left-color: #1f8a63; box-shadow: var(--shadow-sm); }
+.kanban-card.conf-media, .kanban-card.conf-media:not(.card-validated) { border-left-color: #e89a1c; box-shadow: var(--shadow-sm); }
+.kanban-card.conf-baixa, .kanban-card.conf-baixa:not(.card-validated) { border-left-color: #e0101f; box-shadow: var(--shadow-sm); }
+.kanban-card.conf-manual, .kanban-card.conf-manual:not(.card-validated) { border-left-color: #3a67c4; box-shadow: var(--shadow-sm); }
+.kanban-card.card-validated { background: #f4faf7; }
+.kanban-card.card-validated .card-certainty { opacity: 0.75; }
+.kanban-card.dragging { opacity: 0.4; transform: none; }
+.kanban-card .card-top { margin-bottom: 0; }
+.kanban-card .machine-chip { max-width: calc(100% - 70px); }
+.card-tools { display: inline-flex; gap: 2px; flex-shrink: 0; }
+.card-tools .icon-btn { width: 28px; height: 28px; border-radius: 8px; color: var(--ink-soft); }
+.card-tools .icon-btn:hover:not(:disabled) { background: var(--surface); color: var(--ink); }
+.kanban-card .card-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.kanban-card .card-meta { margin: 8px 0 10px; }
+.kanban-card > footer { padding-top: 8px; }
+
+/* Linha que mostra onde o card vai cair */
+.kanban-card.drop-before::before,
+.kanban-card.drop-after::after {
+  content: "";
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  height: 4px;
+  border-radius: 999px;
+  background: #3a67c4;
+  box-shadow: 0 0 0 3px #3a67c433;
+  pointer-events: none;
+}
+.kanban-card.drop-before::before { top: -8px; }
+.kanban-card.drop-after::after { bottom: -8px; }
+.drop-end {
+  padding: 14px;
+  border: 2px dashed #3a67c4;
+  border-radius: 14px;
+  background: #e6eefc;
+  color: #24488f;
+  font-size: 12.5px;
+  font-weight: 800;
+  text-align: center;
+  pointer-events: none;
+}
+.kanban-column.drag-over { outline: 2px solid #3a67c455; outline-offset: -2px; }
+.show-more {
+  padding: 9px;
+  border-radius: 10px;
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.show-more:hover { background: var(--surface); color: var(--ink); }
+
+.review-bar { flex-wrap: nowrap; }
+.review-bar .search-box { flex: 1 1 120px; min-width: 120px; }
+@media (max-width: 1200px) { .review-bar { flex-wrap: wrap; } }
+
+/* ===================== Card limpo (v3) ===================== */
+.kanban-card { padding: 11px 12px 9px; border-radius: 12px; }
+.kanban-card.card-validated { background: #f3faf6; }
+.kanban-card.conf-manual, .kanban-card.conf-manual:not(.card-validated) { border-left-color: #1f8a63; }
+.kc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+.kc-machine {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pct {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 44px;
+  justify-content: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.1;
+  cursor: help;
+}
+.pct.conf-alta { background: #1f8a63; color: #fff; }
+.pct.conf-media { background: #f5a524; color: #3d2600; }
+.pct.conf-baixa { background: #e0101f; color: #fff; }
+.pct.conf-manual { background: #e3f5ec; color: #146446; font-size: 11.5px; }
+.kc-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  width: 100%;
+  padding: 0;
+  text-align: left;
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.38;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.kc-title:hover { color: var(--red); }
+.kc-why {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--ink-soft);
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+.kc-foot { display: flex; align-items: center; gap: 4px; margin-top: 9px; }
+.kc-meta { margin-right: auto; font-size: 11.5px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.kc-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s;
+}
+.kanban-card:hover .kc-icon, .kanban-card:focus-within .kc-icon { opacity: 1; }
+.kc-icon:hover:not(:disabled) { background: var(--surface); color: var(--ink); }
+.kc-validate {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+.kc-validate:hover:not(:disabled) { border-color: #1f8a63; color: #1f8a63; }
+.kc-validate.on { background: #1f8a63; border-color: #1f8a63; color: #fff; }
+@media (hover: none) { .kc-icon { opacity: 1; } }

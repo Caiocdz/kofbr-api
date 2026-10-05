@@ -16,26 +16,43 @@ import {
 } from "@/lib/radar";
 import { Icon, Modal, ErrorNotice } from "./ui";
 
-export type Queue = "" | Confidence;
+/** Filtro do quadro pela % do machine learning: o que está correto (85%+) e o que precisa revisar. */
+export type Queue = "" | "ok" | "rever";
+
+/** Correto = ML com 85%+ de acerto (ou falha definida pelo analista); o resto é para revisar. */
+export const isCorrect = (card: Card) => card.confidence === "alta" || card.confidence === "manual";
+export const inQueue = (card: Card, queue: Queue) => !queue || (queue === "ok") === isCorrect(card);
 
 const ORDER: Confidence[] = ["alta", "media", "baixa", "manual"];
 
 export function ConfidenceBadge({ card, compact = false }: { card: Card; compact?: boolean }) {
   const c = CONFIDENCE[card.confidence] || CONFIDENCE.media;
+  const pct = card.confidence !== "manual" && card.ml_pct != null ? `${Math.round(card.ml_pct)}%` : "";
   return (
     <span
       className={`conf-badge conf-${card.confidence}`}
       title={`${c.label}: ${card.reason}${card.detail ? ` Manifestação: ${card.detail}.` : ""}`}
     >
       <i />
-      {!compact && (card.confidence === "alta" ? "Alta" : card.confidence === "media" ? "Média" : card.confidence === "baixa" ? "Revisar" : "Analista")}
+      {!compact && (pct ? `${pct} certeza` : card.confidence === "alta" ? "Alta" : card.confidence === "media" ? "Média" : card.confidence === "baixa" ? "Revisar" : "Analista")}
+      {compact && pct}
     </span>
   );
 }
 
 export type GroupBy = "falha" | "maquina";
 
-const SHORT: Record<Confidence, string> = { alta: "Alta", media: "Média", baixa: "Revisar", manual: "Analista" };
+/** % de acerto do machine learning para a falha que o card mostra (canto superior direito). */
+export function Certainty({ card }: { card: Card }) {
+  if (card.ml_pct == null) return null;
+  const pct = Math.round(card.ml_pct);
+  const level = pct >= 85 ? "alta" : pct >= 50 ? "media" : "baixa";
+  return (
+    <span className={`pct conf-${level}`} title={`Machine learning: ${pct}% de chance de esta falha estar certa. ${card.reason}`}>
+      {pct}%
+    </span>
+  );
+}
 
 /** Barra única do quadro: visão, filtro de confiança, busca, lote seguro e o menu "Mais". */
 export function ReviewBar({
@@ -43,8 +60,7 @@ export function ReviewBar({
   queue,
   onQueue,
   onBatch,
-  groupBy,
-  onGroupBy,
+  onToggleMl,
   search,
   onSearch,
   busy,
@@ -54,43 +70,36 @@ export function ReviewBar({
   queue: Queue;
   onQueue: (q: Queue) => void;
   onBatch: () => void;
-  groupBy: GroupBy;
-  onGroupBy: (g: GroupBy) => void;
+  onToggleMl: () => void;
   search: string;
   onSearch: (v: string) => void;
   busy: boolean;
   more: ReactNode;
 }) {
   const a = board.automation;
+  const open = board.cards.filter((c) => !c.held);
+  const ok = open.filter(isCorrect).length;
+  const tabs: [Queue, string, string, number][] = [
+    ["ok", "q-alta", "Corretos · 85%+", ok],
+    ["rever", "q-baixa", "Para revisar", open.length - ok],
+  ];
   return (
     <section className="review-bar" aria-label="Revisão do dia">
-      <div className="segmented small group-toggle" role="radiogroup" aria-label="Agrupar colunas por">
-        {(
-          [
-            ["falha", "Por falha"],
-            ["maquina", "Por máquina"],
-          ] as const
-        ).map(([k, label]) => (
-          <button key={k} type="button" role="radio" aria-checked={groupBy === k} className={groupBy === k ? "on" : ""} onClick={() => onGroupBy(k)}>
-            {label}
-          </button>
-        ))}
-      </div>
-      <div className="queue-tabs" role="radiogroup" aria-label="Filtrar por confiança">
+      <div className="queue-tabs" role="radiogroup" aria-label="Filtrar pela % do machine learning">
         <button role="radio" aria-checked={queue === ""} className={queue === "" ? "on" : ""} onClick={() => onQueue("")}>
           Todos
         </button>
-        {ORDER.filter((k) => a.cards[k] > 0 || queue === k).map((k) => (
+        {tabs.map(([k, cls, label, n]) => (
           <button
             key={k}
             role="radio"
             aria-checked={queue === k}
-            className={`q-${k} ${queue === k ? "on" : ""}`}
+            className={`${cls} ${queue === k ? "on" : ""}`}
             onClick={() => onQueue(queue === k ? "" : k)}
-            title={`${CONFIDENCE[k].label}: ${CONFIDENCE[k].hint}`}
+            title={k === "ok" ? "Machine learning com 85% ou mais de acerto" : "Machine learning abaixo de 85%: confira estes"}
           >
             <i />
-            {SHORT[k]} <span>{fmt(a.cards[k])}</span>
+            {label} <span>{fmt(n)}</span>
           </button>
         ))}
       </div>
@@ -98,9 +107,23 @@ export function ReviewBar({
         <Icon name="search" size={16} />
         <input aria-label="Buscar no quadro" placeholder="Buscar equipamento ou relato…" value={search} onChange={(e) => onSearch(e.target.value)} />
       </label>
-      <button className="btn small secondary" disabled={busy || !a.pending_high} onClick={onBatch} title="Valida de uma vez os cards de confiança alta, depois de conferir uma amostra">
+      <button
+        className={`btn small ${board.use_ml ? "primary" : "secondary"}`}
+        disabled={busy}
+        aria-pressed={!!board.use_ml}
+        onClick={onToggleMl}
+        title={
+          board.use_ml
+            ? "O machine learning refez a classificação dos cards não validados. Clique para voltar ao agrupamento por falha do catálogo."
+            : "Opcional: deixa o machine learning refazer a classificação dos cards ainda não validados"
+        }
+      >
+        <Icon name="brain" size={15} />
+        {board.use_ml ? "Machine Learning ligado" : "Usar Machine Learning"}
+      </button>
+      <button className="btn small secondary" disabled={busy || !a.pending_high} onClick={onBatch} title="Valida de uma vez os cards que o machine learning dá 85%+ de acerto, depois de conferir uma amostra">
         <Icon name="checks" size={15} />
-        Validar confiança alta ({fmt(a.pending_high)})
+        Validar corretos ({fmt(a.pending_high)})
       </button>
       {more}
     </section>
@@ -211,12 +234,12 @@ export function SafeBatchModal({
   const records = cards.reduce((s, c) => s + c.count, 0);
   const rest = board.cards.filter((c) => !c.validated && !c.held).length - cards.length;
   return (
-    <Modal title="Validar só o que tem confiança alta" onClose={onClose} wide>
+    <Modal title="Validar os corretos pelo machine learning" onClose={onClose} wide>
       <div className="stack-form">
         <div className="confirm-summary">
           <div>
             <strong>{fmt(cards.length)}</strong>
-            <span>cards de confiança alta</span>
+            <span>cards com 85%+ de acerto</span>
           </div>
           <div>
             <strong>{fmt(records)}</strong>
@@ -228,8 +251,8 @@ export function SafeBatchModal({
           </div>
         </div>
         <p className="helper">
-          Confira a amostra abaixo. Se estiver tudo certo, os cards de confiança alta são validados de uma vez. Os de
-          confiança média e os de “Revisar” <b>não</b> entram — eles continuam no quadro esperando você.
+          Confira a amostra abaixo. Se estiver tudo certo, os cards que o machine learning dá 85% ou mais de acerto são
+          validados de uma vez. Os de “Para revisar” <b>não</b> entram — eles continuam no quadro esperando você.
         </p>
         <ul className="sample-list">
           {preview.map((c) => (

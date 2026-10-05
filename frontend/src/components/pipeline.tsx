@@ -238,7 +238,7 @@ function Processing({ job, onDone }: { job: Job; onDone: (analysisId: string) =>
         </button>
       )}
       {state.error && (
-        <button className="btn secondary" onClick={() => navigate({ view: "fluxo" })}>
+        <button className="btn secondary" onClick={() => navigate({ view: "importar" })}>
           Enviar outra planilha
         </button>
       )}
@@ -819,7 +819,7 @@ export default function Pipeline({ id, step, analyses, onUpdate }: { id?: string
   function go(n: number) {
     if (n === 1) {
       setJob(undefined);
-      navigate({ view: "fluxo" });
+      navigate({ view: "importar" });
     } else if (id) navigate({ view: "fluxo", id, step: n });
   }
   async function retrain() {

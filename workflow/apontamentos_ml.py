@@ -21,8 +21,9 @@ Dois níveis
 - Classe padronizada (coluna principal): o rótulo do analista é enquadrado no catálogo de falhas do
   quadro ("FALHA DE SENSOR"...); se não enquadrar, tenta pelo relato; rótulos recorrentes (5+) que o
   catálogo não conhece viram classe própria. Modelo: TF-IDF de palavras + pedaços de palavras com SVM
-  linear; confiança = softmax das pontuações (temperatura 0,15), com a acurácia de cada faixa medida
-  no teste.
+  linear. Confiança CALIBRADA: a pontuação do SVM (softmax, temperatura 0,15) é superconfiante, então
+  uma regressão isotônica a troca pelo acerto medido em relatos fora do treino (4 sorteios 80/20 para
+  avaliar, os 5 para o modelo final). "80%" = de cada 100 relatos assim, ~80 estavam certos.
 - Detalhe sugerido: dentro da classe prevista, o rótulo de analista do relato de treino mais parecido.
 
 Avaliação: 80/20 com semente fixa (o modelo usado é o dos 80%), IC 95% de Wilson e, para estabilidade,
@@ -55,6 +56,7 @@ ANALYST = 'Analista'
 # Faixas de confiança (probabilidade da classe escolhida). A acurácia real de cada faixa é medida no teste.
 HIGH, MEDIUM = 0.5, 0.2
 TEMPERATURE = 0.15
+MAX_MODEL_CONF = 0.97
 TEST_SIZE = 0.2
 SEED = 42
 STABILITY_SEEDS = (42, 7, 1, 3, 11)
@@ -67,6 +69,8 @@ JUNK_WORDS = {'xxxxxx', 'xxx', 'xx', 'x', 'nota', 'os', 'falha', 'ajuste', 'test
 NO_INFO_LABEL = re.compile(
     r'^(sem (mais )?(detalhes?|informac\w*|descric\w*)( da falha)?|apontamento errado|nao informad\w*|'
     r'outros?|nada|indefinido)$')
+EXPLAIN_STOPWORDS = {'com', 'para', 'por', 'pela', 'pelo', 'sem', 'nao', 'das', 'dos', 'nas', 'nos', 'uma', 'foi',
+                     'devido', 'falha', 'problema', 'ordem', 'nota', 'manutencao', 'linha', 'maquina'}
 LABEL_STOPWORDS = {'de', 'da', 'do', 'das', 'dos', 'na', 'no', 'nas', 'nos', 'e', 'a', 'o', 'em', 'com'}
 
 _lock = threading.Lock()
@@ -392,6 +396,103 @@ class DetailIndex:
         return result
 
 
+def _scored(model, test):
+    """(pontuação bruta da classe escolhida, acertou?) para cada relato do teste."""
+    if not test:
+        return []
+    proba = _proba(model, [e['text'] for e in test])
+    classes = model.classes_
+    return [(float(p.max()), classes[int(p.argmax())] == e['cls']) for p, e in zip(proba, test)]
+
+
+def _calibrator(pairs):
+    """Regressão isotônica: pontuação bruta → fração de acerto observada (sempre crescente)."""
+    if len(pairs) < 30:
+        return None
+    from sklearn.isotonic import IsotonicRegression
+    iso = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds='clip')
+    iso.fit([c for c, _ in pairs], [float(ok) for _, ok in pairs])
+    # O modelo nunca afirma 100%: esse valor fica para relatos já validados por pessoas.
+    return {'x': [float(v) for v in iso.X_thresholds_], 'y': [min(float(v), MAX_MODEL_CONF) for v in iso.y_thresholds_]}
+
+
+def calibrate(conf, calibration):
+    if not calibration:
+        return conf
+    import numpy as np
+    return float(np.interp(conf, calibration['x'], calibration['y']))
+
+
+def _reliability(pairs, edges=(0, .2, .35, .5, .65, .8, .9, 1.01)):
+    """Tabela "o modelo disse X% → acertou Y%" (relatos de teste, fora do treino)."""
+    out = []
+    for lo, hi in zip(edges, edges[1:]):
+        group = [(c, ok) for c, ok in pairs if lo <= c < hi]
+        if group:
+            out.append({'de': _pct(lo), 'ate': _pct(min(hi, 1)), 'n': len(group),
+                        'dito': _pct(sum(c for c, _ in group) / len(group)),
+                        'acerto': _pct(sum(ok for _, ok in group) / len(group))})
+    return out
+
+
+class Explainer:
+    """O "porquê" de cada previsão, para o analista conferir se faz sentido:
+    - palavras do relato que mais empurraram para a classe (pesos do modelo linear);
+    - o relato já classificado (treino ou analista) mais parecido, dentro da mesma classe."""
+
+    def __init__(self, model, examples):
+        self.features = model[:-1]
+        self.words = model[0].transformer_list[0][1]
+        self.names = self.words.get_feature_names_out()
+        self.coef = model[-1].coef_
+        self.classes = list(model.classes_)
+        pool = [e for e in examples if e['cls']]
+        self.matrix = self.features.transform([e['text'] for e in pool]) if pool else None
+        self.raws = [str(e['raw'])[:160] for e in pool]
+        self.by_class = defaultdict(list)
+        for i, e in enumerate(pool):
+            self.by_class[e['cls']].append(i)
+
+    def words_for(self, texts, guesses, top=3):
+        import numpy as np
+        X = self.words.transform(texts).tocsr()
+        out = []
+        for i, guess in enumerate(guesses):
+            row = X.getrow(i)
+            if guess not in self.classes or not row.nnz:
+                out.append([])
+                continue
+            c = self.classes.index(guess)
+            if self.coef.shape[0] == 1:  # duas classes: um vetor só, com sinal
+                weights = self.coef[0, row.indices] * (1 if c == 1 else -1)
+            else:
+                weights = self.coef[c, row.indices]
+            contrib = row.data * weights
+            picked = []
+            # Bigramas viram as palavras de conteúdo deles ("do motor" → "motor"), sem repetir.
+            for j in np.argsort(contrib)[::-1]:
+                if contrib[j] <= 0 or len(picked) >= top:
+                    break
+                for word in str(self.names[row.indices[j]]).split():
+                    if len(word) > 2 and not word.isdigit() and word not in EXPLAIN_STOPWORDS and word not in picked:
+                        picked.append(word)
+            out.append(picked[:top])
+        return out
+
+    def neighbours(self, texts, guesses):
+        import numpy as np
+        out = [''] * len(texts)
+        if self.matrix is None or not texts:
+            return out
+        for start in range(0, len(texts), 1000):
+            sims = (self.features.transform(texts[start:start + 1000]) @ self.matrix.T).toarray()
+            for i, row in enumerate(sims):
+                idx = self.by_class.get(guesses[start + i])
+                if idx:
+                    out[start + i] = self.raws[idx[int(np.argmax(row[idx]))]]
+        return out
+
+
 def _wilson(hits, n, z=1.96):
     """Intervalo de confiança de 95% (Wilson) para uma proporção."""
     if not n:
@@ -444,13 +545,27 @@ def train(force=False):
         proba = _proba(model, test_texts)
         classes = model.classes_
         guesses = [classes[int(p.argmax())] for p in proba]
+
+        # Estabilidade + calibração: o mesmo processo com outros sorteios 80/20. A pontuação bruta do
+        # modelo é superconfiante (dizia 99% e acertava ~80%); a calibração troca a pontuação pelo
+        # acerto MEDIDO em relatos que o modelo não viu. Avaliada aqui sem usar o teste principal.
+        other_pairs, other_runs = [], []
+        for tr, te in (_split(folder, s) for s in STABILITY_SEEDS if s != SEED):
+            probe = _fit(tr + reviewed, best_c)
+            pairs = _scored(probe, te)
+            other_pairs += pairs
+            other_runs.append(sum(ok for _, ok in pairs) / len(pairs) if pairs else 0.0)
+        eval_cal = _calibrator(other_pairs)
+        main_pairs = [(float(p.max()), g == e['cls']) for p, g, e in zip(proba, guesses, test_set)]
+        reliability = _reliability([(calibrate(c, eval_cal), ok) for c, ok in main_pairs])
+        calibration = _calibrator(other_pairs + main_pairs)
         suggested = details.suggest(test_texts, guesses)
         hits = top3 = detail_hits = 0
         bands = {b: [0, 0] for b in ('Alta', 'Média', 'Baixa')}
         errors = []
         for probs, guess, detail, e in zip(proba, guesses, suggested, test_set):
             order = probs.argsort()[::-1]
-            conf = float(probs[order[0]])
+            conf = calibrate(float(probs[order[0]]), eval_cal)
             ok = guess == e['cls']
             hits += ok
             top3 += e['cls'] in {classes[j] for j in order[:3]}
@@ -464,9 +579,7 @@ def train(force=False):
         low, high = _wilson(hits, n)
         accuracy = hits / n
 
-        # Estabilidade: o mesmo processo com outros sorteios 80/20.
-        runs = [accuracy] + [_accuracy(_fit(tr + reviewed, best_c), te) for tr, te in
-                             (_split(folder, s) for s in STABILITY_SEEDS if s != SEED)]
+        runs = [accuracy] + other_runs
         mean = sum(runs) / len(runs)
         sd = math.sqrt(sum((r - mean) ** 2 for r in runs) / len(runs))
 
@@ -503,9 +616,12 @@ def train(force=False):
                 for b, v in bands.items()
             ],
             'error_examples': errors,
+            'calibrated': True,
+            'reliability': reliability,
             'top_classes': [{'label': k, 'examples': c} for k, c in Counter(e['cls'] for e in labeled).most_common(10)],
         }
-        bundle = {'pipeline': model, 'details': details,
+        bundle = {'pipeline': model, 'details': details, 'calibration': calibration,
+                  'explainer': Explainer(model, [e for e in labeled if id(e) in in_train]),
                   'memory': {ex['relato_norm']: ex for ex in analyst if ex.get('relato_norm')},
                   'class_list': sorted(set(classes) | {e['cls'] for e in reviewed} | _catalog_classes(catalog))}
         _state.update(model=bundle, info=info, fingerprint=fingerprint)
@@ -530,15 +646,20 @@ def _current_fingerprint():
         return None
 
 
-def _ensure_model():
+def _ensure_model(fresh=True):
     if _state['model'] is None:
         try:
             import joblib
             saved = joblib.load(_model_path())
-            if 'details' in saved['model']:
+            if 'explainer' in saved['model']:  # modelos antigos (sem calibração/motivo) são retreinados
                 _state.update(model=saved['model'], info=saved['info'], fingerprint=saved['fingerprint'])
         except Exception:
             pass
+    if _state['model'] is not None and not fresh:
+        # Usa o modelo atual sem esperar; se houver exemplos novos, retreina em segundo plano.
+        if _current_fingerprint() not in (None, _state['fingerprint']):
+            retrain_soon(delay=1.0)
+        return _state['model']
     current = _current_fingerprint()
     # Retreina sozinho se a pasta de treino ou as revisões do analista mudaram.
     if _state['model'] is None or (current and current != _state['fingerprint']):
@@ -577,6 +698,15 @@ def status():
         return {'ready': False, 'erro': str(exc), 'train_dir': str(train_dir())}
 
 
+def version(fresh=False):
+    """Identidade do modelo em uso (muda a cada retreino); None se não há modelo."""
+    try:
+        _ensure_model(fresh)
+    except ValueError:
+        return None
+    return (_state['fingerprint'] or '')[:12] or None
+
+
 def class_options():
     model = _ensure_model()
     return {'classes': model['class_list'], 'details': model['details'].options()}
@@ -584,9 +714,10 @@ def class_options():
 
 # ----------------------------------------------------------------------------- predição
 
-def predict(texts):
-    """relato normalizado → {'classe', 'detalhe', 'confianca', 'faixa', 'top3'}."""
-    model = _ensure_model()
+def predict(texts, fresh=True):
+    """relato normalizado → {'classe', 'detalhe', 'confianca', 'faixa', 'top3'}.
+    fresh=False usa o modelo já carregado mesmo que haja exemplos novos (não trava a importação)."""
+    model = _ensure_model(fresh)
     pipeline, memory = model['pipeline'], model['memory']
     out = {}
     unique = sorted({t for t in texts if t})
@@ -594,18 +725,23 @@ def predict(texts):
         if t in memory:  # relato que o analista já revisou: vale o que ele disse
             ex = memory[t]
             out[t] = {'classe': class_label(ex['classe']), 'detalhe': ex.get('detalhe') or '', 'confianca': None,
-                      'faixa': ANALYST, 'top3': []}
+                      'faixa': ANALYST, 'top3': [], 'palavras': [], 'exemplo': ex.get('relato') or t}
     rest = [t for t in unique if t not in out]
     if rest:
         proba = _proba(pipeline, rest)
         classes = pipeline.classes_
         guesses = [classes[int(p.argmax())] for p in proba]
         details = model['details'].suggest(rest, guesses)
-        for t, probs, guess, detail in zip(rest, proba, guesses, details):
+        cal = model.get('calibration')
+        explainer = model['explainer']
+        words = explainer.words_for(rest, guesses)
+        nearest = explainer.neighbours(rest, guesses)
+        for t, probs, guess, detail, w, near in zip(rest, proba, guesses, details, words, nearest):
             order = probs.argsort()[::-1][:3]
-            conf = float(probs[order[0]])
+            conf = calibrate(float(probs[order[0]]), cal)
             out[t] = {'classe': guess, 'detalhe': detail, 'confianca': _pct(conf), 'faixa': band(conf),
-                      'top3': [{'classe': classes[j], 'confianca': _pct(float(probs[j]))} for j in order]}
+                      'top3': [{'classe': classes[j], 'confianca': _pct(calibrate(float(probs[j]), cal))} for j in order],
+                      'palavras': w, 'exemplo': near}
     return out
 
 

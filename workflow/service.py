@@ -61,7 +61,7 @@ def learn(doc, card_ids, previous=None):
     return changed
 
 
-def record_detail(record, cat, mem=None, ml=True):
+def record_detail(record, cat, mem=None, ml=False):
     base = fc.explain(record.get('observacao_raw'), record.get('equipamento'), cat, mem)
     if not ml:
         return base
@@ -73,8 +73,10 @@ def record_class(record, cat, mem=None):
     return record_detail(record, cat, mem)['label']
 
 
-def details_for(records, cat, mem=None, ml=True):
-    """Classificação de todos os apontamentos: catálogo + memória + aprendizado (em lote)."""
+def details_for(records, cat, mem=None, ml=False):
+    """Classificação de todos os apontamentos pelo catálogo + memória (em lote).
+    O quadro usa o modelo calibrado (apontamentos_ml) por cima disso, em card_info; o modelo antigo
+    (learning.py, sem calibração) só entra com ml=True."""
     pairs = {r['id']: (str(r.get('observacao_raw') or ''), str(r.get('equipamento') or '')) for r in records}
     preds = learning.predict_many(list(pairs.values())) if ml else {}
     out = {}
@@ -108,6 +110,110 @@ def card_auto(card, details):
             'detail': detail[0][0] if detail else '', 'suggestion': suggestion[0][0] if suggestion else ''}
 
 
+# Certeza do ML (%) para a confiança do card: só "alta" libera a validação em lote.
+ML_HIGH, ML_MEDIUM = 85.0, 50.0
+
+
+def card_ml(card, records):
+    """Classe do card segundo o modelo de ML e a chance (%) de estar correta:
+    certeza média dos apontamentos que concordam × fração do card que concorda."""
+    tagged = [records[i] for i in card['record_ids'] if records[i].get('ml_class')]
+    if not tagged:
+        return None
+    label, votes = Counter(r['ml_class'] for r in tagged).most_common(1)[0]
+    agreeing = [r for r in tagged if r['ml_class'] == label]
+    mean = sum(r['ml_conf'] for r in agreeing) / votes
+    detail = Counter(r['ml_detail'] for r in agreeing if r.get('ml_detail')).most_common(1)
+    words = [w for w, _ in Counter(w for r in agreeing for w in r.get('ml_words') or []).most_common(3)]
+    best = max(agreeing, key=lambda r: r['ml_conf'])
+    return {'label': label, 'pct': round(mean * votes / len(card['record_ids']), 1), 'votes': votes,
+            'detail': detail[0][0] if detail else '', 'words': words, 'example': best.get('ml_example') or ''}
+
+
+def _why_ml(ml):
+    """Motivo curto, para caber no card: as palavras que pesaram (ou o relato parecido)."""
+    if ml['words']:
+        return 'cita ' + ', '.join(f'"{w}"' for w in ml['words'])
+    return f'parecido com "{ml["example"][:70]}"' if ml['example'] else ''
+
+
+def class_pct(card, label, records):
+    """% de acerto da classe `label` para o card, segundo o machine learning: média, entre os
+    apontamentos que o modelo leu, da chance calibrada de cada um ser dessa classe. None sem ML."""
+    read = [records[i] for i in card['record_ids'] if records[i].get('ml_probs') or records[i].get('ml_class')]
+    if not read:
+        return None
+
+    def chance(r):
+        if r.get('ml_probs'):
+            return float(r['ml_probs'].get(label, 0.0))
+        return float(r['ml_conf']) if r.get('ml_class') == label else 0.0
+    return round(sum(chance(r) for r in read) / len(read), 1)
+
+
+def level(pct):
+    """Certeza do card a partir da % do ML: só "alta" (85%+) entra no lote de corretos."""
+    return 'alta' if pct >= ML_HIGH else 'media' if pct >= ML_MEDIUM else 'baixa'
+
+
+def card_info(card, details, records, use_ml=False):
+    """Classe automática do card e a % de acerto dela segundo o machine learning.
+
+    Padrão: o quadro agrupa por falha com o catálogo/memória e o ML só mede a chance de cada card
+    estar certo (separa o que está correto do que o analista precisa revisar).
+    use_ml=True (botão "Usar machine learning"): o ML refaz a classificação dos cards abertos."""
+    info = card_auto(card, details) | {'ml_pct': None, 'why': ''}
+    ml = card_ml(card, records)
+    if info['source'] == 'memoria' and info['confidence'] == 'alta':
+        # Relato que o analista já corrigiu antes: vale o que ele disse.
+        return info | {'ml_pct': 100.0, 'why': 'corrigido antes por você'}
+    catalog_label, n = info['label'], len(card['record_ids'])
+    if use_ml and ml and ml['pct'] >= ML_MEDIUM:
+        info |= {'label': ml['label'], 'source': 'ml', 'detail': ml['detail'] or info['detail'],
+                 'agreement': round(ml['votes'] / n, 3)}
+    label = info['label']
+    pct = class_pct(card, label, records)
+    if pct is None:
+        # Sem modelo de ML: fica a classe e a confiança do catálogo.
+        return info
+    if label in fc.UNCLASSIFIED:
+        pct = 0.0
+    other = ml['label'] if ml and ml['label'] != label else ''
+    reason = f'Machine learning: {pct:.0f}% de chance de ser {fc.pretty(label).lower()}.'
+    if other:
+        reason += f' O machine learning acha mais provável {fc.pretty(other).lower()} ({ml["pct"]:.0f}%).'
+    if ml and ml['example'] and not other:
+        reason += f' Parecido com relato já classificado: "{ml["example"][:120]}".'
+    if catalog_label != label and catalog_label not in fc.UNCLASSIFIED:
+        reason += f' O catálogo indica {fc.pretty(catalog_label).lower()}.'
+    if other:
+        why = f'ML sugere {fc.pretty(other).lower()}, {ml["pct"]:.0f}%'
+    elif ml:
+        why = 'validado antes por pessoa' if pct >= 100 else _why_ml(ml)
+    else:
+        why = ''
+    return info | {'ml_pct': pct, 'confidence': level(pct), 'reason': reason, 'why': why,
+                   'suggestion': other or (catalog_label if catalog_label != label and catalog_label not in fc.UNCLASSIFIED else '')}
+
+
+def refresh_ml(doc):
+    """Mantém as previsões do quadro em dia com o modelo: análises antigas ganham o ML e, a cada
+    retreino (depois de validações), os cards ainda NÃO validados são reavaliados. Validado não muda."""
+    if doc.get('mode') == 'ml':
+        return False
+    from . import apontamentos_ml as aml
+    from . import importer
+    current = aml.version()
+    if not current or (doc.get('ml_version') == current and doc.get('ml_schema') == importer.ML_SCHEMA):
+        return False
+    records = {r['id']: r for r in doc['records']}
+    open_ids = [i for c in doc['cards'] if not c['validated'] for i in c['record_ids']]
+    if open_ids and not importer.ml_annotate([records[i] for i in open_ids]):
+        return False
+    doc['ml_version'], doc['ml_schema'] = current, importer.ML_SCHEMA
+    return True
+
+
 def final_class(card, auto_label):
     """Classe que vale para os indicadores: a do analista, a congelada na validação ou a automática."""
     return card.get('failure_class') or (card.get('validated_class') if card.get('validated') else None) or auto_label
@@ -124,12 +230,36 @@ def training_rows():
         records = {r['id']: r for r in doc['records']}
         details = {i: fc.explain(records[i].get('observacao_raw'), records[i].get('equipamento'), cat, mem)
                    for i in card['record_ids']}
-        return card_auto(card, details)['label']
+        return card_info(card, details, records, doc.get('use_ml'))['label']
     return learning.examples(store.all_documents(), mem, label)
 
 
-def card_auto_class(card, records, cat, mem=None):
-    return card_auto(card, details_for([records[i] for i in card['record_ids']], cat, mem))['label']
+def teach_ml(before, after):
+    """Cada card que passa a valer como validado (ou muda de classe depois de validado) vira exemplo
+    de treino do modelo de ML (radar_ml_examples, peso 3): a próxima planilha já chega mais certa."""
+    from . import apontamentos_ml as aml
+    from . import store
+    old = {c['id']: (c['validated'] and not c['held'], final_class(c, None)) for c in before['cards']}
+    records = {r['id']: r for r in after['records']}
+    examples = {}
+    for c in after['cards']:
+        label = final_class(c, None) if c['validated'] and not c['held'] else None
+        if not label or label in fc.UNCLASSIFIED or old.get(c['id']) == (True, label):
+            continue
+        for rid in c['record_ids']:
+            text = records[rid].get('observacao_raw') or ''
+            key = aml.normalize_text(text)
+            if aml.has_content(key):
+                examples[key] = {'relato': text, 'relato_norm': key, 'classe': aml.class_label(label),
+                                 'detalhe': records[rid].get('ml_detail') or '', 'origem': after['filename']}
+    if examples:
+        store.save_ml_examples(list(examples.values()))
+        aml.retrain_soon()
+    return len(examples)
+
+
+def card_auto_class(card, records, cat, mem=None, use_ml=False):
+    return card_info(card, details_for([records[i] for i in card['record_ids']], cat, mem), records, use_ml)['label']
 
 
 # --- Falha real × linha do SAP -------------------------------------------------
@@ -161,6 +291,10 @@ def event_map(doc):
     for r in doc['records']:
         os_ = order_number(r.get('observacao_raw'))
         machine = '|'.join(_norm(r.get(k)) for k in ('centro', 'linha', 'equipamento'))
+        if r.get('sem_contexto'):
+            # Máquina desconhecida: não dá para afirmar que é a mesma falha de outra linha.
+            out[r['id']] = (f"{doc['id']}:{r['id']}", os_)
+            continue
         if os_:
             out[r['id']] = (f'os:{machine}|{os_}', os_)
         else:
@@ -220,18 +354,27 @@ def summary(doc):
 
 def board(doc):
     records = {r['id']: r for r in doc['records']}
+    columns = {c['id']: c for c in doc['columns']}
     cat, mem = catalog(), memory()
     events = event_map(doc)
     details = details_for(doc['records'], cat, mem)
     cards = []
     for c in doc['cards']:
-        info = card_auto(c, details)
+        info = card_info(c, details, records, doc.get('use_ml'))
         auto = info['label']
         frozen = c.get('validated') and c.get('validated_class') and not c.get('failure_class')
+        shown = final_class(c, auto)
+        # A % no canto do card é sempre a da falha que aparece nele (inclusive a escolhida pelo analista).
+        if shown != auto:
+            pct = class_pct(c, shown, records)
+            info['ml_pct'] = None if pct is None else 0.0 if shown in fc.UNCLASSIFIED else pct
         cards.append(c | {
             'confidence': 'manual' if c.get('failure_class') else info['confidence'],
             'reason': f"Definida pelo analista (automático sugeria {fc.pretty(auto)})." if c.get('failure_class') else info['reason'],
             'agreement': info['agreement'], 'source': 'analista' if c.get('failure_class') else info['source'],
+            'ml_pct': info['ml_pct'], 'grouped_by': c.get('grouped_by', 'texto'),
+            'why': 'definida por você' if c.get('failure_class') else info['why'],
+            'machine': f"{columns[c['column_id']]['name']} · {columns[c['column_id']]['line']}" if c['column_id'] in columns else '',
             'detail': info['detail'], 'suggestion': info['suggestion'],
             'events': len({events[i][0] for i in c['record_ids']}),
             'orders': sorted({events[i][1] for i in c['record_ids'] if events[i][1]})[:20],
@@ -246,7 +389,7 @@ def board(doc):
             'frozen': bool(frozen),
         })
     labels = set(fc.classifier_for(cat).labels()) | {c['class'] for c in cards} | {v['label'] for v in mem.values()}
-    return summary(doc) | {'columns': doc['columns'], 'events': doc['events'][-100:], 'cards': cards,
+    return summary(doc) | {'use_ml': bool(doc.get('use_ml')), 'columns': doc['columns'], 'events': doc['events'][-100:], 'cards': cards,
                            'classes': sorted(labels - set(fc.UNCLASSIFIED)) + list(fc.UNCLASSIFIED),
                            'unclassified_count': sum(c['class'] == fc.SEM_MODO for c in cards),
                            'automation': automation(doc, cards, events, mem) | {'learning': learning.info()}}
@@ -277,7 +420,7 @@ def mutate(doc, body):
     columns = {c['id']: c for c in doc['columns']}
     card = cards.get(body.get('card_id'))
     column = columns.get(body.get('column_id'))
-    if action in {'validate_card', 'hold', 'move', 'rename_card', 'split_card', 'set_class'} and not card:
+    if action in {'validate_card', 'hold', 'move', 'rename_card', 'split_card', 'set_class', 'reorder'} and not card:
         raise ValueError('Card não encontrado.')
     if action in {'validate_column', 'delete_column', 'move'} and not column:
         raise ValueError('Coluna não encontrada.')
@@ -293,10 +436,17 @@ def mutate(doc, body):
     elif action == 'set_class':
         # Classificação manual da falha (item 1.4): vazio volta ao automático.
         label = re.sub(r'\s+', ' ', str(body.get('failure_class') or '')).strip().upper()[:120]
+        # Corrigir é decidir: o card escolhido pelo analista já fica validado (e ensina o ML).
         if label:
             card['failure_class'] = label
+            card['validated'], card['held'] = True, False
         else:
             card.pop('failure_class', None)
+            card['validated'] = False
+    elif action == 'reorder':
+        # Arrastar entre dois cards da mesma falha: só muda a posição (feito abaixo).
+        if not (body.get('before_id') or body.get('after_id')):
+            raise ValueError('Informe onde soltar o card.')
     elif action == 'set_classes':
         # Lote de classes definidas pelo analista.
         items = body.get('items') or []
@@ -337,6 +487,9 @@ def mutate(doc, body):
             item['validated'] = True
         for col in columns.values():
             col['validated'] = True
+    elif action == 'use_ml':
+        # Opcional: o machine learning refaz a classificação dos cards ainda não validados (desligar volta ao catálogo).
+        doc['use_ml'] = bool(body.get('on'))
     elif action == 'hold':
         card['held'], card['validated'] = True, False
     elif action == 'move':
@@ -368,6 +521,8 @@ def mutate(doc, body):
                                  'name': records[rid]['observacao_raw'] or 'Descrição não informada'})
     else:
         raise ValueError('Ação desconhecida.')
+    if action in ('reorder', 'set_class'):
+        _place(doc, card, body)
     _freeze_classes(doc)
     for col in doc['columns']:
         members = [c for c in doc['cards'] if c['column_id'] == col['id'] and not c['held']]
@@ -379,8 +534,21 @@ def mutate(doc, body):
                           'column': column['name'] if column else body.get('name'), 'revision': doc['revision'],
                           **({'value': card.get('failure_class') or 'automática'} if action == 'set_class' else {}),
                           **({'value': len(body.get('items') or [])} if action == 'set_classes' else {}),
-                          **({'value': len(body.get('card_ids') or [])} if action == 'validate_confident' else {})})
+                          **({'value': len(body.get('card_ids') or [])} if action == 'validate_confident' else {}),
+                          **({'value': 'ligado' if doc.get('use_ml') else 'desligado'} if action == 'use_ml' else {})})
     return doc
+
+
+def _place(doc, card, body):
+    """Põe o card logo antes (before_id) ou logo depois (after_id) de outro: a ordem do quadro é a da lista."""
+    target = str(body.get('before_id') or body.get('after_id') or '')
+    if not target or target == card['id']:
+        return
+    if not any(c['id'] == target for c in doc['cards']):
+        raise ValueError('Card de destino não encontrado. Atualize o quadro.')
+    doc['cards'].remove(card)
+    index = next(i for i, c in enumerate(doc['cards']) if c['id'] == target)
+    doc['cards'].insert(index if body.get('before_id') else index + 1, card)
 
 
 def _freeze_classes(doc):
@@ -396,7 +564,7 @@ def _freeze_classes(doc):
     needed = [records[i] for c in todo for i in c['record_ids']]
     details = details_for(needed, catalog(), memory())
     for c in todo:
-        c['validated_class'] = card_auto(c, details)['label']
+        c['validated_class'] = card_info(c, details, records, doc.get('use_ml'))['label']
 
 
 def reduced_records(doc, cat=None, mem=None):
