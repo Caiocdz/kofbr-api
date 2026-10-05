@@ -95,7 +95,7 @@ def render_chart(data, kind, fmt, context):
                         fontsize=8, color='#e0101f', bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='#e0101f'))
             legend = [f"{i}. {m.get('short') or m['name']}" for i, m in enumerate(machines[:40], 1)]
             fig.text(1.0, 0.5, '\n'.join(legend), fontsize=6.5, va='center', ha='left', family='monospace')
-        fig.text(0.01, 0.001, 'Fonte: apontamentos validados. Cortes do crítico-crônico: medianas do conjunto filtrado.',
+        fig.text(0.01, 0.001, 'Fonte: apontamentos validados. Cortes do crítico-crônico: Q médio e MTTR do conjunto filtrado (tempo total ÷ falhas).',
                  fontsize=8, color='#657084')
         result = io.BytesIO()
         fig.savefig(result, format=fmt, dpi=160, bbox_inches='tight')

@@ -1,4 +1,4 @@
-export type View = "inicio" | "importar" | "quadro" | "analise" | "comparar" | "gerar" | "fluxo" | "resumir";
+export type View = "inicio" | "importar" | "quadro" | "analise" | "comparar" | "gerar" | "fluxo" | "desempenho";
 export type Route = { view: View; id?: string; day?: string; step?: number };
 export type Daily = {
   date: string;
@@ -369,7 +369,7 @@ export function readRoute(): Route {
   const [path, search] = window.location.hash.slice(1).split("?");
   const [view, id] = path.split("/");
   return {
-    view: ["inicio", "importar", "quadro", "analise", "comparar", "gerar", "fluxo", "resumir"].includes(view)
+    view: ["inicio", "importar", "quadro", "analise", "comparar", "gerar", "fluxo", "desempenho"].includes(view)
       ? (view as View)
       : "inicio",
     id,

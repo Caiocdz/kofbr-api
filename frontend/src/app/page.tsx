@@ -24,11 +24,11 @@ import Importer from "@/components/importer";
 import Kanban from "@/components/kanban";
 import MlFill from "@/components/ml-fill";
 import Pipeline from "@/components/pipeline";
-import Resumo from "@/components/resumo";
+import Desempenho from "@/components/desempenho";
 import { Dashboard, Compare } from "@/components/analysis";
 import "./home.css";
 import "./kanban.css";
-import "./resumo.css";
+import "./desempenho.css";
 
 /** Tampinha de garrafa (coroa com 21 dentes), gerada por código. */
 const CAP_PATH = (() => {
@@ -449,7 +449,7 @@ export default function Page() {
     comparar: "Comparar períodos",
     gerar: "Gerar planilha de apontamentos",
     fluxo: "Nova análise",
-    resumir: "Classificar planilha",
+    desempenho: "Desempenho da ML",
   }[route.view];
   return (
     <div className="app-shell">
@@ -525,12 +525,12 @@ export default function Page() {
             <span>Comparar</span>
           </button>
           <button
-            className={`nav-link ${route.view === "resumir" ? "active" : ""}`}
-            onClick={() => navigate({ view: "resumir" })}
-            aria-current={route.view === "resumir" ? "page" : undefined}
+            className={`nav-link ${route.view === "desempenho" ? "active" : ""}`}
+            onClick={() => navigate({ view: "desempenho" })}
+            aria-current={route.view === "desempenho" ? "page" : undefined}
           >
-            <Icon name="sheet" size={19} />
-            <span>Classificar planilha</span>
+            <Icon name="brain" size={19} />
+            <span>Desempenho da ML</span>
           </button>
         </nav>
         <div className="sidebar-bottom">
@@ -600,14 +600,14 @@ export default function Page() {
           className={`page-content ${route.view === "quadro" ? "board-content" : ""}`}
         >
           <ErrorNotice message={error} retry={load} />
-          {!loaded && route.view !== "importar" && route.view !== "gerar" && route.view !== "fluxo" && route.view !== "resumir" ? (
+          {!loaded && route.view !== "importar" && route.view !== "gerar" && route.view !== "fluxo" && route.view !== "desempenho" ? (
             <Loading />
           ) : (
             <>
               {route.view === "inicio" && <Home analyses={analyses} />}
               {route.view === "importar" && <Importer onUpdate={load} />}
               {route.view === "gerar" && <MlFill />}
-              {route.view === "resumir" && <Resumo />}
+              {route.view === "desempenho" && <Desempenho />}
               {route.view === "fluxo" && (
                 <Pipeline key={route.id || "novo"} id={route.id} step={route.step} analyses={analyses} onUpdate={load} />
               )}

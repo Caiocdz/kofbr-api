@@ -109,8 +109,8 @@ def compute_jackknife_by_equipamento(records):
     if not points:
         return {"points": [], "q_threshold": 0, "mttr_threshold": 0}
 
-    q_threshold = _median([p["Q"] for p in points])
-    mttr_threshold = _median([p["MTTR"] for p in points])
+    q_threshold = sum(p["Q"] for p in points) / len(points)
+    mttr_threshold = (sum(p["T"] for p in points) / sum(p["Q"] for p in points)) if sum(p["Q"] for p in points) else 0
 
     for p in points:
         p["categoria"] = _classify_quadrant(p["Q"], p["MTTR"], q_threshold, mttr_threshold)
@@ -147,8 +147,8 @@ def compute_jackknife_by_modo_falha(records, linha, equipamento):
     if not points:
         return {"points": [], "q_threshold": 0, "mttr_threshold": 0}
 
-    q_threshold = _median([p["Q"] for p in points])
-    mttr_threshold = _median([p["MTTR"] for p in points])
+    q_threshold = sum(p["Q"] for p in points) / len(points)
+    mttr_threshold = (sum(p["T"] for p in points) / sum(p["Q"] for p in points)) if sum(p["Q"] for p in points) else 0
     for p in points:
         p["categoria"] = _classify_quadrant(p["Q"], p["MTTR"], q_threshold, mttr_threshold)
 

@@ -197,14 +197,16 @@ def test_category_filter_and_excel_summary(client):
     rows += [['U1', '30/09/2026', 'L1', 'Esteira', 'Mecânica', 'Correia', 90]]
     board = validate_all(client, upload(client, rows).json)
     full = client.get(f'/api/workspace/analytics?ids={board["id"]}').json
-    # Medianas: 1 ocorrência e 50 min; valores iguais ao corte ficam no lado alto.
-    assert full['categories'] == {'Crítico-crônico': 2, 'Crítico': 0, 'Crônico': 1, 'Conforto': 0}
+    # Cortes padrão: Q = 5 falhas / 3 máquinas = 1,67 · MTTR = 245 min / 5 falhas = 49 min.
+    # Bomba (Q3, 50 min) crítico-crônico · Esteira (Q1, 90 min) crítico · Motor (Q1, 5 min) conforto.
+    assert round(full['q_threshold'], 2) == 1.67 and full['mttr_threshold'] == 49
+    assert full['categories'] == {'Crítico-crônico': 1, 'Crítico': 1, 'Crônico': 0, 'Conforto': 1}
     assert len(full['rows']) == 3
     only = client.get(f'/api/workspace/analytics?ids={board["id"]}&category=Crítico-crônico').json
-    assert {m['name'] for m in only['machines']} == {'Bomba', 'Esteira'}
-    assert only['metrics']['count'] == 4 and only['q_threshold'] == full['q_threshold']
-    comfort = client.get(f'/api/workspace/analytics?ids={board["id"]}&category=Crônico').json
-    assert [m['name'] for m in comfort['machines']] == ['Motor'] and comfort['machines'][0]['category'] == 'Crônico'
+    assert {m['name'] for m in only['machines']} == {'Bomba'}
+    assert only['metrics']['count'] == 3 and only['q_threshold'] == full['q_threshold']
+    comfort = client.get(f'/api/workspace/analytics?ids={board["id"]}&category=Conforto').json
+    assert [m['name'] for m in comfort['machines']] == ['Motor'] and comfort['machines'][0]['category'] == 'Conforto'
     assert client.get(f'/api/workspace/analytics?ids={board["id"]}&category=Inventada').status_code == 400
     xlsx = client.get(f'/api/workspace/export/xlsx?ids={board["id"]}&from=2026-09-30&to=2026-09-30')
     assert xlsx.status_code == 200
@@ -640,41 +642,6 @@ def test_merge_cards_undo_redo(client):
     assert action(client, board, 'redo').status_code == 200
 
 
-def test_resumo_groups_duplicates_and_fills_classification(client):
-    import openpyxl as xl
-    rows = [['Observações', 'Classificação']]
-    rows += [[f'TROCA DA MOLA DO BLOCO N°{i} 3000812{i:04d}', 'Mola danificada'] for i in range(20)]
-    rows += [[f'SENSOR DE PORTA EM FALHA {i}', 'Sensor danificado'] for i in range(20)]
-    rows += [['Presilha de gargalo danificada, realizada a troca', 'Presilha danificada']] * 3
-    rows += [['PRESILHA DE GARGALO DANIFICADA REALIZADA A TROCA 30008223804', None]]
-    rows += [['TROCA DA MOLA DO BLOCO 99', None], ['', None], ['Sem detalhes aqui', 'Sem detalhes']]
-    wb = xl.Workbook()
-    for r in rows:
-        wb.active.append(r)
-    data = io.BytesIO()
-    wb.save(data)
-    result = client.post('/api/workspace/resumo', data={'file': (io.BytesIO(data.getvalue()), 'jundiai.xlsx')}).json
-    st = result['stats']
-    assert st['rows'] == len(rows) - 2  # linha totalmente vazia não conta
-    # As 4 presilhas (com/sem acento, pontuação e O.S.) viram UMA observação.
-    pres = [p for p in result['preview'] if 'PRESILHA' in p['text'].upper()]
-    assert len(pres) == 1 and pres[0]['count'] == 4 and pres[0]['class'] == 'FALHA DE PRESILHA'
-    mola = next(p for p in result['preview'] if p['text'] == 'TROCA DA MOLA DO BLOCO 99')
-    assert mola['class'] == 'FALHA DE MOLA' and mola['source'] != 'Analista (padronizada)'
-    out = client.get(f"/api/workspace/resumo/{result['id']}.xlsx")
-    sheet = xl.load_workbook(io.BytesIO(out.data)).worksheets[0]
-    assert [c.value for c in sheet[1]][:4] == ['Nº', 'Observação', 'Ocorrências', 'Classificação']
-    assert sheet.max_row - 1 == st['unique']
-    # A planilha dos analistas ensinou o modelo.
-    from workflow.resumo import sheet_examples, standardize_label
-    assert len(sheet_examples()) >= 40
-    cat = service.catalog()
-    assert standardize_label('Trava Gargalo danificada', cat) == 'FALHA DE TRAVA GARGALO'
-    assert standardize_label('Falha no balancim', cat) == 'FALHA DE BALANCIM'
-    assert standardize_label('Sem detalhes', cat) is None
-    assert standardize_label('FALHA DE VÁLVULA DE ENCHIMENTO', cat) == 'FALHA DE VÁLVULA DE ENCHIMENTO'
-
-
 def test_resumo_from_validated_analysis(client):
     import openpyxl as xl
     rows = [['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'FALHA NO SENSOR DE SAIDA 30008224349', 10],
@@ -730,13 +697,22 @@ def test_full_sheet_from_validated_analysis_keeps_everything_and_adds_classifica
     assert got[''] == 'SEM DESCRIÇÃO'
 
 
-def test_full_sheet_from_upload_ml_fills_every_row(client):
-    import openpyxl as xl
-    data, head, texts = _sap_sheet()
-    result = client.post('/api/workspace/resumo', data={'file': (io.BytesIO(data), 'sap.xlsx')}).json
-    assert result['full'] == 'sap - com classificação.xlsx'
-    out = client.get(f"/api/workspace/resumo/{result['id']}/completa")
-    ws = xl.load_workbook(io.BytesIO(out.data)).worksheets[0]
-    assert [c.value for c in ws[1]] == head + ['Classificação']
-    assert all(ws.cell(r, 12).value for r in range(2, ws.max_row + 1))
-    assert ws.cell(2, 12).value == 'FALHA DE SENSOR'
+def test_pareto_and_jackknife_match_hand_calculation(client):
+    """Conferência à mão (contagem por linhas do SAP, como no item 2.2 do descritivo).
+    M1: 4×25=100 min · M2: 1×90 · M5: 3×20=60 · M3: 10×3=30 · M4: 2×5=10 → T=290, Q=20, 5 máquinas.
+    Cortes (método padrão, igual ao exemplo do descritivo): Q = 20/5 = 4 · MTTR = 290/20 = 14,5."""
+    plan = {'M1': [25] * 4, 'M2': [90], 'M3': [3] * 10, 'M4': [5] * 2, 'M5': [20] * 3}
+    rows = []
+    for machine, minutes in plan.items():
+        for i, m in enumerate(minutes):
+            rows.append(['U1', f'{13 + i % 3}/09/2026', 'LINHA001', machine, 'P.EQ.LINHA', f'ROLAMENTO QUEBRADO {machine} {i}', m])
+    board = validate_all(client, upload(client, rows).json)
+    data = client.get(f"/api/workspace/analytics?ids={board['id']}&count=lines").json
+    assert data['q_threshold'] == 4 and data['mttr_threshold'] == 14.5
+    pareto = [(m['name'], m['minutes'], m['count'], round(m['percent'], 2), round(m['cumulative'], 2)) for m in data['machines']]
+    assert pareto == [('M1', 100, 4, 34.48, 34.48), ('M2', 90, 1, 31.03, 65.52), ('M5', 60, 3, 20.69, 86.21),
+                      ('M3', 30, 10, 10.34, 96.55), ('M4', 10, 2, 3.45, 100)]
+    cat = {m['name']: (m['mttr'], m['category']) for m in data['machines']}
+    assert cat == {'M1': (25, 'Crítico-crônico'), 'M2': (90, 'Crítico'), 'M5': (20, 'Crítico'),
+                   'M3': (3, 'Crônico'), 'M4': (5, 'Conforto')}
+    # Com a mediana (método antigo) o corte de Q seria 3 e a M5 viraria crítico-crônico por empate.

@@ -1,0 +1,209 @@
+/* ===================== Desempenho da ML ===================== */
+.dp {
+  --ok: #1f9d6b;
+  --warn: #b88400;
+  --bad: #e0101f;
+  display: grid;
+  gap: 18px;
+}
+.dp .tone-ok { color: var(--ok); }
+.dp .tone-warn { color: var(--warn); }
+.dp .tone-bad { color: var(--bad); }
+.dp-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.dp-kpis > div {
+  display: grid;
+  gap: 4px;
+  padding: 18px 20px;
+  border-radius: 20px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+.dp-kpis span {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.dp-kpis b {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -1.2px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.dp-kpis small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.dp-card {
+  display: grid;
+  gap: 14px;
+  padding: 20px 22px;
+  border-radius: 22px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+.dp-card header h2 {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+}
+.dp-card header p {
+  margin-top: 3px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.dp-curve {
+  width: 100%;
+  max-height: 240px;
+}
+.dp-curve .grid { stroke: #eceae8; }
+.dp-curve text {
+  font-size: 11px;
+  fill: var(--muted);
+}
+.dp-curve text.val {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--ink);
+}
+.dp-curve .area { fill: #e7f6ef; }
+.dp-curve .line {
+  fill: none;
+  stroke: var(--ok);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+}
+.dp-curve circle {
+  fill: #fff;
+  stroke: var(--ok);
+  stroke-width: 2;
+}
+.dp-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 22px;
+  border-radius: 14px;
+  background: #f6f5f4;
+  color: var(--ink-soft);
+  font-size: 13.5px;
+}
+.dp-table-scroll {
+  overflow-x: auto;
+}
+.dp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.dp-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.dp-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f2f0ee;
+  vertical-align: middle;
+}
+.dp-table td.num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dp-table small {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.dp-table small.up { color: var(--ok); }
+.dp-table small.down { color: var(--bad); }
+.dp-link {
+  font-weight: 700;
+  color: var(--ink);
+  text-align: left;
+}
+.dp-link:hover {
+  color: var(--red);
+}
+.dp-pill {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-weight: 800;
+  background: #f6f5f4;
+}
+@media (max-width: 1000px) {
+  .dp-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .dp-kpis {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Menu "Exportar Excel" do dashboard */
+.export-menu {
+  position: relative;
+}
+.export-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 30;
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 16px;
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 40px -16px #1413134d;
+}
+.export-menu-panel > button,
+.export-menu-panel > a {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  text-align: left;
+  color: var(--ink);
+  text-decoration: none;
+}
+.export-menu-panel > button:hover,
+.export-menu-panel > a:hover {
+  background: #f6f5f4;
+}
+.export-menu-panel svg {
+  flex: none;
+  margin-top: 2px;
+  color: #1f8a63;
+}
+.export-menu-panel span {
+  display: grid;
+  gap: 2px;
+}
+.export-menu-panel b {
+  font-size: 13.5px;
+  font-weight: 750;
+}
+.export-menu-panel small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.export-menu-panel > a.main {
+  background: #f1faf5;
+}

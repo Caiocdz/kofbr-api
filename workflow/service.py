@@ -653,6 +653,18 @@ def _counter(mode):
     return lambda rows: len({r.get('event_id') or (r.get('analysis_id'), r['id']) for r in rows})
 
 
+def jack_cuts(items):
+    """Linhas de corte do Jack-Knife pelo método padrão (Knights), o mesmo do exemplo do descritivo:
+    Q de corte = total de falhas ÷ nº de itens (média de Q);
+    MTTR de corte = tempo total ÷ total de falhas (MTTR do conjunto, ponderado pelo nº de falhas).
+    A mediana (usada antes) forçava metade dos itens de cada lado da linha."""
+    if not items:
+        return 0, 0
+    total_q = sum(m['count'] for m in items)
+    total_t = sum(m['minutes'] for m in items)
+    return total_q / len(items), (total_t / total_q if total_q else 0)
+
+
 def _cat(hq, ht):
     return 'Crítico-crônico' if hq and ht else 'Crítico' if ht else 'Crônico' if hq else 'Conforto'
 
@@ -672,8 +684,7 @@ def _compute(records, thresholds=None, mode='events'):
     if thresholds:
         q_cut, t_cut = thresholds
     else:
-        q_cut = median([m['count'] for m in machines]) if machines else 0
-        t_cut = median([m['mttr'] for m in machines]) if machines else 0
+        q_cut, t_cut = jack_cuts(machines)
     cumulative = 0.0
     for item in machines:
         cumulative += item['minutes']
@@ -718,8 +729,7 @@ def _failures(records, count=len):
                       'minutes': round(minutes, 2), 'mttr': round(minutes / q, 2) if q else 0,
                       'machines': [{'name': n, 'lines': c} for n, c in top]})
     items.sort(key=lambda m: (-m['minutes'], m['key']))
-    q_cut = median([m['count'] for m in items]) if items else 0
-    t_cut = median([m['mttr'] for m in items]) if items else 0
+    q_cut, t_cut = jack_cuts(items)
     cumulative = 0.0
     for m in items:
         cumulative += m['minutes']
@@ -731,7 +741,7 @@ def _failures(records, count=len):
 
 def compute(records, categories=None, mode='events'):
     """Indicadores do conjunto. Com filtro de criticidade, a classificação usa os
-    cortes (medianas) do conjunto completo e os totais passam a considerar só as
+    cortes (média de Q e MTTR do conjunto) do conjunto completo e os totais passam a considerar só as
     máquinas das classes escolhidas."""
     base = _compute(records, mode=mode)
     base['categories'] = {c: sum(m['category'] == c for m in base['machines']) for c in CATEGORIES}

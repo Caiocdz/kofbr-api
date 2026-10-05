@@ -703,14 +703,10 @@ function MlPanel({
   board,
   queue,
   onQueue,
-  onTrain,
-  training,
 }: {
   board: Board;
   queue: Queue;
   onQueue: (q: Queue) => void;
-  onTrain: () => void;
-  training: boolean;
 }) {
   const a = board.automation;
   const l = a.learning;
@@ -724,11 +720,9 @@ function MlPanel({
   const delta = curve.length >= 2 ? curve[curve.length - 1] - curve[curve.length - 2] : null;
   const isThis = last?.id === board.id;
   const measured = l?.accuracy ?? null;
-  const need = l?.measure_min || 60;
   const records = board.cards.reduce((n, c) => n + c.count, 0) || 1;
   const fromPast = board.cards.filter((c) => c.source === "memoria" || c.source === "aprendizado").reduce((n, c) => n + c.count, 0);
   const tone = (v: number) => (v >= 85 ? "ok" : v >= 70 ? "warn" : "bad");
-  const trainedAt = l?.trained_at ? new Date(l.trained_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "";
   return (
     <section className="kb-ml" aria-label="Filtragem automática pela machine learning">
       <div className="kb-ml-score">
@@ -744,10 +738,15 @@ function MlPanel({
                 de acerto {isThis ? "nesta planilha" : "na última planilha finalizada"}
               </span>
             </div>
+          ) : measured != null ? (
+            <div>
+              <strong className={`tone-${tone(measured)}`}>{fmt(measured, 1)}%</strong>
+              <span title="Testado em relatos validados que o modelo não viu no treino">de acerto do modelo</span>
+            </div>
           ) : (
-            <div className="kb-ml-calib">
-              <strong>Aprendendo</strong>
-              <span>A ML aprende quando você finaliza a planilha em “Ver análises”.</span>
+            <div>
+              <strong className="tone-">—</strong>
+              <span>sem planilha finalizada ainda</span>
             </div>
           )}
           {curve.length >= 2 ? (
@@ -763,24 +762,17 @@ function MlPanel({
               </small>
             </div>
           ) : (
-            <div className="kb-ml-trend empty">
-              <small>
-                {last ? "A curva de evolução aparece a partir da 2ª planilha finalizada." : `${fmt(sheets.length)} planilha(s) finalizada(s) até agora.`}
-              </small>
-            </div>
+            <span />
           )}
         </div>
         <p className="kb-ml-foot">
           {fromPast > 0
             ? `${fmt((fromPast / records) * 100, 0)}% desta planilha já chegou classificada pelo que a ML aprendeu`
             : `${fmt(a.auto_rate, 1)}% dos apontamentos classificados sozinhos`}
-          {measured != null
-            ? ` · modelo: ${fmt(measured, 1)}% de acerto (${fmt(l?.examples || 0)} exemplos)`
-            : ` · modelo: ${fmt(Math.min(l?.examples || 0, need))}/${fmt(need)} exemplos para medir`}
-          {trainedAt ? ` · treino ${trainedAt}` : ""}
-          <button type="button" className="kb-link" disabled={training} onClick={onTrain}>
-            <Icon name="refresh" size={12} />
-            {training ? "Treinando…" : "Treinar"}
+          {last && measured != null ? ` · modelo: ${fmt(measured, 1)}%` : ""}
+          <button type="button" className="kb-link" onClick={() => navigate({ view: "desempenho" })}>
+            Ver desempenho
+            <Icon name="arrow" size={12} />
           </button>
         </p>
       </div>
@@ -845,7 +837,6 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
   const [groupBy, setGroupBy] = useState<GroupBy>("falha");
   const [extraClasses, setExtraClasses] = useState<string[]>([]);
   const [newFailure, setNewFailure] = useState<string | null>(null);
-  const [training, setTraining] = useState(false);
   const [newClass, setNewClass] = useState<{ card: string; value: string } | null>(null);
   const [picker, setPicker] = useState<{ card: Card; rect: DOMRect } | null>(null);
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set());
@@ -1272,17 +1263,6 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
       }),
     [viewColumns, byColumn],
   );
-  async function train() {
-    setTraining(true);
-    try {
-      await api("/learning/train", { method: "POST" });
-      await load();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setTraining(false);
-    }
-  }
   if (!board)
     return (
       <>
@@ -1390,7 +1370,7 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
         </div>
       </header>
       <ErrorNotice message={error} retry={() => void load()} />
-      <MlPanel board={board} queue={queue} onQueue={changeQueue} onTrain={() => void train()} training={training} />
+      <MlPanel board={board} queue={queue} onQueue={changeQueue} />
       <div className="kb-toolbar">
         <div className="kb-undo" role="group" aria-label="Desfazer e refazer">
           <button

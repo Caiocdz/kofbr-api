@@ -137,7 +137,7 @@ function CategoryNote({ data }: { data: Analytics }) {
     <div className="info-notice">
       <Icon name="target" />
       Mostrando {fmt(data.machines.length)} de {fmt(data.total_machines)} equipamentos ({data.category_filter.join(", ")}).
-      Os cortes do Jack-Knife continuam sendo as medianas do conjunto completo.
+      Os cortes do Jack-Knife continuam sendo os do conjunto completo (Q médio e MTTR do conjunto).
     </div>
   );
 }
@@ -317,7 +317,7 @@ function MachineDrill({ machine, query, onClose }: { machine: Machine; query: Qu
           </div>
         )}
         <p className="helper">
-          A categoria de cada modo usa as medianas desta máquina. Comece pelos modos dentro dos 80% (coluna destacada).
+          A categoria de cada modo usa os cortes desta máquina (Q médio e MTTR da máquina). Comece pelos modos dentro dos 80% (coluna destacada).
         </p>
       </div>
     </Modal>

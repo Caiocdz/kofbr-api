@@ -107,14 +107,19 @@ LEARNING_ACTIONS = {'set_class', 'set_classes', 'merge_cards', 'undo', 'redo', '
 
 @bp.route('/learning', methods=['GET'])
 def learning_status():
+    """Desempenho da ML: modelo (acerto em teste cego e evolução), acerto por planilha finalizada e memória."""
     from . import learning
-    return jsonify(learning.info() | {'training': learning._state['training']})
+    return jsonify(learning.info() | {'training': learning._state['training'], 'sheets': service.learning_sheets(),
+                                      'memory': len(service.memory()),
+                                      'pending': sum(1 for d in store.all_documents()
+                                                     if d.get('mode') != 'ml' and not service.finished(d))})
 
 
 @bp.route('/learning/train', methods=['POST'])
 def learning_train():
     from . import learning
-    return jsonify(learning.train(service.training_rows(), force=True) | {'training': False})
+    learning.train(service.training_rows(), force=True)
+    return learning_status()
 
 
 @bp.route('/memory', methods=['GET'])
@@ -145,34 +150,6 @@ def finish(analysis_id):
         return jsonify(ready=True)
     # Finalizar = a ML aprende com esta planilha (treino na hora) e mede quanto acertou nela.
     return jsonify(ready=True, learning=service.finish_learning(doc))
-
-
-@bp.route('/resumo', methods=['POST'])
-def resumo_upload():
-    """Planilha solta na tela "Planilha resumida": agrupa as observações e preenche a classificação."""
-    from . import resumo
-    file = request.files.get('file')
-    if not file or not file.filename:
-        raise ValueError('Selecione uma planilha.')
-    filename = Path(file.filename.replace('\\', '/')).name
-    if not filename.lower().endswith(('.xlsx', '.xlsm', '.csv')):
-        raise ValueError('Envie um arquivo .xlsx, .xlsm ou .csv.')
-    return jsonify(resumo.from_upload(file.read(), filename))
-
-
-@bp.route('/resumo/<file_id>.xlsx')
-def resumo_download(file_id):
-    from . import resumo
-    path, name = resumo.output(file_id)
-    return send_file(path, as_attachment=True, download_name=name,
-                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-
-
-@bp.route('/resumo/<file_id>/completa')
-def resumo_full_download(file_id):
-    from . import resumo
-    path, name = resumo.output(file_id, full=True)
-    return send_file(path, as_attachment=True, download_name=name)
 
 
 @bp.route('/analyses/<analysis_id>/completa')

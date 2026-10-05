@@ -576,7 +576,7 @@ export function Charts({
                     </button>
                   </>
                 ) : kind === "jackknife" ? (
-                  `Cortes (medianas): ${fmt(jackSpec.qCut, 1)} falhas · ${fmt(jackSpec.tCut, 1)} min de MTTR. Os números dos pontos são a sequência da tabela abaixo.`
+                  `Cortes: Q médio ${fmt(jackSpec.qCut, 1)} falhas · MTTR ${fmt(jackSpec.tCut, 1)} min (tempo total ÷ falhas). Os números dos pontos são a sequência da tabela abaixo.`
                 ) : (
                   "Máquinas ordenadas pelo tempo de parada (colunas S/Q). Q no pé da coluna = quantidade de falhas."
                 )}
@@ -593,7 +593,7 @@ export function Charts({
             Passe sobre um ponto ou uma barra para conferir os valores.
             {isManual(expanded)
               ? " Este gráfico foi montado manualmente."
-              : " As linhas de corte do crítico-crônico são as medianas do conjunto filtrado."}
+              : " Linhas de corte do crítico-crônico: Q médio e MTTR do conjunto filtrado (tempo total ÷ nº de falhas), como no descritivo."}
           </p>
         </Modal>
       )}

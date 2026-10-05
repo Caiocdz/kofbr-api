@@ -1,91 +1,31 @@
-"""Planilha resumida: uma linha por observação ÚNICA, com a classificação padronizada.
+"""Exportações por observação a partir da análise validada no quadro.
 
-Entrada (tela "Planilha resumida"): qualquer planilha com uma coluna "Observações…" e, se houver,
-uma coluna "Classificação…" (como as das unidades Marília, Jundiaí e Curitiba). Também serve a
-análise já validada do quadro (botão "Exportar Excel" do dashboard).
-
-O que acontece
-1. Agrupa as observações repetidas: mesmo texto sem acentos, caixa, pontuação e número de O.S./nota
-   vira uma linha só, com a quantidade de ocorrências e as variações de escrita.
-2. Padroniza a classificação no tema do projeto (descritivo, item 1.3): "FALHA DE <componente>".
-   - Se o analista já classificou, o rótulo dele é enquadrado no catálogo ("Mola danificada" →
-     FALHA DE MOLA, "Falha no balancim" → FALHA DE BALANCIM). Rótulos sem informação
-     ("Sem detalhes", "Apontamento errado") são ignorados.
-   - Se a linha não tem classificação, a ferramenta preenche: memória de correções → catálogo →
-     machine learning (aprendido com as planilhas finalizadas e com as classificações dos analistas).
-3. As classificações dos analistas viram exemplos de treino: o modelo é retreinado na hora, então a
-   própria planilha ajuda a preencher as linhas que vieram em branco — e as próximas.
+- Planilha completa com Classificação (`full_from_analysis`): a planilha ORIGINAL importada, intacta,
+  com a coluna "Classificação" que saiu do quadro (validada pelo analista).
+- Planilha resumida (`from_analysis`): uma linha por observação única, sem as repetições.
+- `sheet_examples`: exemplos (relato, classe) salvos antes pela tela "Classificar planilha" (removida);
+  continuam valendo no treino do modelo.
 """
 import io
-import json
 import re
 import unicodedata
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
 
 from . import classify as fc
 
-NO_INFO = re.compile(
-    r'^(SEM (MAIS )?(DETALHES?|INFORMAC\w*|DESCRIC\w*)( DA FALHA)?|APONTAMENTO (ERRADO|EM BRANCO)|'
-    r'NAO INFORMAD\w*|OUTROS?|NADA|INDEFINIDO|EM BRANCO|N A|NA)$')
-STATE = (r'DANIFICAD[OA]S?|QUEBRAD[OA]S?|TRAVAD[OA]S?|TRAVANDO|SOLT[OA]S?|SOLTANDO|DESARMAD[OA]S?|DESARMANDO|'
-         r'COM DEFEITO|DEFEITUOS[OA]S?|ROMPID[OA]S?|DESGASTAD[OA]S?|EMPENAD[OA]S?|DESALINHAD[OA]S?|'
-         r'DESREGULAD[OA]S?|QUEIMAD[OA]S?|VAZANDO|TORT[OA]S?|AMASSAD[OA]S?|FURAD[OA]S?|RASGAD[OA]S?|'
-         r'INOPERANTES?|EM FALHA|COM FALHA|SEM FUNCIONAR|NAO FUNCIONA\w*')
-PREP = r'(?:DE|DO|DA|DOS|DAS|NO|NA|NOS|NAS|EM|COM)'
-ACTION = r'(?:AJUSTE|AJUSTES|ALINHAMENTO|TROCA|TROCAS|REPARO|REGULAGEM|SUBSTITUICAO|LIMPEZA|MANUTENCAO)'
-FAILURE = r'(?:FALHA|FALHAS|PROBLEMA|PROBLEMAS|DEFEITO|DEFEITOS|ERRO|ERROS)'
 ORIGIN = {'analista': 'Analista (padronizada)', 'memoria': 'Memória de correções', 'regra': 'Catálogo',
           'componente': 'Catálogo', 'processo': 'Catálogo', 'aprendizado': 'Machine learning',
           'quadro': 'Validada no quadro', 'nenhum': '—'}
 
 
-def _upper(text):
-    return re.sub(r'\s+', ' ', str(text or '')).strip().upper()
-
+# ----------------------------------------------------------------------------- leitura
 
 def _plain(text):
-    return unicodedata.normalize('NFKD', _upper(text)).encode('ascii', 'ignore').decode()
+    text = re.sub(r'\s+', ' ', str(text or '')).strip().upper()
+    return unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode()
 
-
-def _strip_accents_map(original, plain_part):
-    """Recorta do rótulo ORIGINAL (com acento) o trecho que casou no texto sem acento."""
-    up = _upper(original)
-    start = _plain(up).find(plain_part)
-    return up[start:start + len(plain_part)] if start >= 0 and len(_plain(up)) == len(up) else plain_part
-
-
-def standardize_label(label, catalog):
-    """Rótulo livre do analista → classe no tema do projeto (ou None se o rótulo não informa nada)."""
-    raw = _upper(label).split('_')[0].strip(' .-')
-    plain = re.sub(r'[^A-Z0-9 ]', ' ', _plain(raw))
-    plain = re.sub(r'\s+', ' ', plain).strip()
-    if not plain or NO_INFO.match(plain) or plain in {fc.normalize(x) for x in fc.UNCLASSIFIED}:
-        return None
-    found = fc.classify(raw, '', catalog)
-    if found not in fc.UNCLASSIFIED:
-        return found
-
-    def theme(part):
-        part = re.sub(rf'^{PREP}\s+', '', part.strip())
-        part = re.sub(r'\s+(?:N|NO|NR)?\s*\d+$', '', part).strip()
-        return f'FALHA DE {_strip_accents_map(raw, part)}' if part else None
-
-    m = re.match(rf'^{FAILURE}\s+(?:{PREP}\s+)?(.+)$', plain)
-    if m:
-        return theme(m.group(1))
-    m = re.match(rf'^(?:{ACTION}\s+(?:{PREP}\s+)?)?(.+?)\s+(?:{STATE})\b', plain)
-    if m:
-        return theme(re.sub(rf'^{ACTION}\s+(?:{PREP}\s+)?', '', m.group(1)))
-    m = re.match(rf'^{ACTION}\s+(?:{PREP}\s+)?(.+)$', plain)
-    if m:
-        return theme(m.group(1))
-    return raw  # já está no tema da unidade (ex.: "QUEDA DE GARRAFAS", "ESCAPE DE ESTEIRA")
-
-
-# ----------------------------------------------------------------------------- leitura
 
 def _header(row):
     cols = {}
@@ -106,58 +46,6 @@ def _header(row):
         elif 'minutes' not in cols and h.startswith('MINUTOS'):
             cols['minutes'] = i
     return cols
-
-
-def read_rows(data, filename):
-    """[{text, label, machine, line, unit, minutes}] de todas as abas que têm coluna "Observações"."""
-    rows = []
-    if filename.lower().endswith('.csv'):
-        import csv
-        text = data.decode('utf-8-sig', errors='replace')
-        dialect = csv.Sniffer().sniff(text[:4000], delimiters=';,\t') if text.strip() else csv.excel
-        sheets = [list(csv.reader(io.StringIO(text), dialect))]
-    else:
-        import openpyxl
-        try:
-            wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-        except Exception as exc:
-            raise ValueError('Não foi possível ler o arquivo. Confira se é uma planilha .xlsx válida, sem senha.') from exc
-        sheets = [list(ws.iter_rows(values_only=True)) for ws in wb.worksheets]
-        wb.close()
-    titles = None if filename.lower().endswith('.csv') else _sheet_titles(data)
-    for sheet_index, data_rows in enumerate(sheets):
-        for index, row in enumerate(data_rows[:30]):
-            cols = _header(row)
-            if 'text' in cols:
-                break
-        else:
-            continue
-        for number, row in enumerate(data_rows[index + 1:], index + 2):
-            if not row or all(v in (None, '') for v in row):
-                continue
-            get = lambda k: row[cols[k]] if k in cols and cols[k] < len(row) else None
-            try:
-                minutes = float(str(get('minutes') or 0).replace(',', '.'))
-            except ValueError:
-                minutes = 0.0
-            rows.append({'text': str(get('text') or '').strip(), 'label': str(get('label') or '').strip(),
-                         'machine': str(get('machine') or '').strip(), 'line': str(get('line') or '').strip(),
-                         'unit': str(get('unit') or '').strip(), 'minutes': minutes,
-                         'sheet': titles[sheet_index] if titles else None, 'row': number})
-    if not rows:
-        raise ValueError('Nenhuma coluna "Observações" encontrada nas primeiras 30 linhas da planilha.')
-    return rows
-
-
-def _sheet_titles(data):
-    import openpyxl
-    try:
-        wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True)
-    except Exception:
-        return None
-    titles = wb.sheetnames
-    wb.close()
-    return titles
 
 
 # ----------------------------------------------------------------------------- planilha completa
@@ -266,85 +154,6 @@ def full_from_analysis(doc, source):
 
 # ----------------------------------------------------------------------------- agrupamento
 
-def group(rows):
-    """Junta as observações repetidas (mesmo texto normalizado, sem O.S.)."""
-    groups, order = {}, []
-    for r in rows:
-        key = fc.memory_key(r['text']) or ('' if not r['text'].strip() else fc.normalize(r['text']))
-        g = groups.get(key)
-        if g is None:
-            g = groups[key] = {'key': key, 'texts': Counter(), 'labels': Counter(), 'machines': Counter(),
-                               'lines': Counter(), 'units': Counter(), 'count': 0, 'minutes': 0.0}
-            order.append(key)
-        g['texts'][r['text']] += 1
-        if r.get('label'):
-            g['labels'][r['label']] += 1
-        for k, f in (('machines', 'machine'), ('lines', 'line'), ('units', 'unit')):
-            if r.get(f):
-                g[k][r[f]] += 1
-        g['count'] += 1
-        g['minutes'] += r.get('minutes') or 0
-    return [groups[k] for k in order]
-
-
-def _pairs_key(g):
-    return (g['texts'].most_common(1)[0][0], g['machines'].most_common(1)[0][0] if g['machines'] else '')
-
-
-def classify_groups(groups, learn=True):
-    """Dá a cada grupo a classe padronizada e de onde ela veio. Retorna (grupos, info do modelo)."""
-    from . import learning, service, store
-    cat, mem = service.catalog(), service.memory()
-    for g in groups:
-        g['text'] = g['texts'].most_common(1)[0][0] if g['texts'] else ''
-        g['analyst'] = g['labels'].most_common(1)[0][0] if g['labels'] else ''
-        g['class'], g['source'], g['confidence'] = None, 'nenhum', ''
-        if g['analyst']:
-            std = standardize_label(g['analyst'], cat)
-            if std:
-                g['class'], g['source'], g['confidence'] = std, 'analista', 'alta'
-    # As classificações dos analistas ensinam o modelo antes de ele preencher o que veio em branco.
-    taught = [(g['text'], g['class']) for g in groups if g['source'] == 'analista' and fc.memory_key(g['text'])]
-    info = None
-    if learn and taught:
-        save_examples(taught, store)
-        info = learning.train(service.training_rows(), force=True)
-    todo = [g for g in groups if not g['class']]
-    preds = learning.predict_many([_pairs_key(g) for g in todo if g['key']]) if todo else {}
-    for g in todo:
-        if not g['key']:
-            g['class'], g['source'], g['confidence'] = fc.SEM_DESCRICAO, 'nenhum', ''
-            continue
-        base = fc.explain(g['text'], _pairs_key(g)[1], cat, mem)
-        pred = preds.get(_pairs_key(g))
-        # Ordem medida num teste cego com Curitiba (30% sem rótulo): o modelo treinado com as
-        # classificações dos analistas acerta ~90% quando tem 60%+ de certeza; o catálogo, ~47%.
-        if base['source'] == 'memoria' or base['label'] == fc.SEM_DESCRICAO:
-            pass
-        elif pred and pred[1] >= MODEL_FIRST:
-            base = {'label': pred[0], 'source': 'aprendizado', 'confidence': 'alta' if pred[1] >= 0.8 else 'media'}
-        elif base['label'] in fc.UNCLASSIFIED and pred and pred[1] >= 0.3:
-            base = {'label': pred[0], 'source': 'aprendizado', 'confidence': 'baixa'}
-        elif base['label'] not in fc.UNCLASSIFIED:
-            base = {**base, 'confidence': 'media'}
-        g['class'], g['source'], g['confidence'] = base['label'], base['source'], base['confidence']
-        if base['label'] in fc.UNCLASSIFIED:
-            g['confidence'] = 'baixa'
-    return groups, info or learning.info()
-
-
-def save_examples(pairs, store):
-    """Guarda (relato, classe padronizada) das planilhas dos analistas como exemplos de treino."""
-    saved = store.get_setting('sheet_examples') or {}
-    for text, label in pairs:
-        key = fc.memory_key(text)
-        if key:
-            saved[key] = {'text': text[:500], 'label': label}
-    if len(saved) > 40000:
-        saved = dict(list(saved.items())[-40000:])
-    store.set_setting('sheet_examples', saved)
-
-
 def sheet_examples():
     from . import store
     return [(v['text'], v['label']) for v in (store.get_setting('sheet_examples') or {}).values()]
@@ -353,7 +162,6 @@ def sheet_examples():
 # ----------------------------------------------------------------------------- planilha de saída
 
 RED = 'E0101F'
-MODEL_FIRST = 0.6  # certeza mínima para o modelo vencer o catálogo
 
 
 def _variations(g, limit=3):
@@ -490,61 +298,6 @@ def _meta(filename, st):
 
 
 # ----------------------------------------------------------------------------- entradas
-
-def _outputs():
-    import os
-    base = Path(os.environ.get('KOFBR_DATA_DIR', Path(__file__).resolve().parents[1] / 'data')) / 'resumos'
-    base.mkdir(parents=True, exist_ok=True)
-    return base
-
-
-def from_upload(data, filename):
-    """Planilha solta na tela → resumo salvo em data/resumos/<id>.xlsx + estatísticas e prévia."""
-    rows = read_rows(data, filename)
-    has_context = any(r['machine'] or r['minutes'] for r in rows)
-    groups, info = classify_groups(group(rows))
-    st = stats(groups, len(rows), info)
-    file_id = uuid4().hex
-    stem = Path(filename).stem
-    out_name = f'{stem} - resumida.xlsx'
-    (_outputs() / f'{file_id}.xlsx').write_bytes(build_workbook(groups, _meta(filename, st), with_context=has_context))
-    # A planilha completa (todas as linhas e colunas originais) com a coluna Classificação preenchida.
-    full_name = None
-    if not filename.lower().endswith('.csv'):
-        by_key = {g['key']: g for g in groups}
-        marks = defaultdict(dict)
-        for r in rows:
-            key = fc.memory_key(r['text']) or ('' if not r['text'].strip() else fc.normalize(r['text']))
-            g = by_key.get(key)
-            if g and r.get('row') and r.get('sheet'):
-                tone = 'alta' if g['source'] == 'analista' else _tone(g['class'], g['confidence'])
-                marks[r['sheet']][r['row']] = (g['class'], tone)
-        full, ext = write_full(data, filename, marks)
-        full_name = f'{stem} - com classificação{ext}'
-        (_outputs() / f'{file_id}-completa{ext}').write_bytes(full)
-    (_outputs() / f'{file_id}.json').write_text(json.dumps({'filename': out_name, 'full': full_name, 'source': filename, 'stats': st,
-                                                           'at': datetime.now().isoformat(timespec='seconds')},
-                                                          ensure_ascii=False), encoding='utf-8')
-    preview = sorted(groups, key=lambda g: -g['count'])[:60]
-    return {'id': file_id, 'filename': out_name, 'full': full_name, 'stats': st,
-            'preview': [{'text': g['text'], 'count': g['count'], 'class': g['class'], 'source': ORIGIN.get(g['source'], g['source']),
-                         'confidence': g['confidence'], 'analyst': g['analyst'], 'variations': len(g['texts']) - 1}
-                        for g in preview]}
-
-
-def output(file_id, full=False):
-    if not re.fullmatch(r'[0-9a-f]{32}', file_id or ''):
-        raise ValueError('Arquivo não encontrado.')
-    meta_path = _outputs() / f'{file_id}.json'
-    if not meta_path.exists():
-        raise ValueError('Arquivo não encontrado. Gere a planilha de novo.')
-    meta = json.loads(meta_path.read_text(encoding='utf-8'))
-    if full:
-        if not meta.get('full'):
-            raise ValueError('A planilha completa não está disponível para arquivos .csv.')
-        return _outputs() / f"{file_id}-completa{Path(meta['full']).suffix}", meta['full']
-    return _outputs() / f'{file_id}.xlsx', meta['filename']
-
 
 def from_analysis(doc):
     """Análise validada do quadro → resumo (a classe é a validada pelo analista; nada é reclassificado)."""
