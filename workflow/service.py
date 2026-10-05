@@ -142,7 +142,34 @@ def training_rows():
                    for i in card['record_ids']}
         return card_auto(card, details)['label']
     from .resumo import sheet_examples
-    return learning.examples([d for d in store.all_documents() if finished(d)], mem, label, sheet_examples())
+    return learning.examples([d for d in store.all_documents() if finished(d)], mem, label,
+                             sheet_examples() + folder_examples())
+
+
+_folder_cache = {'key': None, 'rows': []}
+
+
+def folder_examples():
+    """(relato, classe) das planilhas já classificadas pelos analistas na pasta de treino
+    ("planilhas modelo/plhanilha treinamento de ml" ou KOFBR_ML_TRAIN_DIR): Observações + Classificação.
+    O rótulo do analista é enquadrado no padrão do descritivo (FALHA DE <componente>) pelo mesmo
+    tratamento da tela de apontamentos (rótulos sem informação, duplicadas e conflitos tratados).
+    Com isso o quadro já começa sabendo o que os analistas classificaram antes."""
+    from . import apontamentos_ml as ml
+    try:
+        files = ml._training_files()
+    except ValueError:
+        return []
+    key = tuple((f.name, f.stat().st_size, int(f.stat().st_mtime)) for f in files)
+    if _folder_cache['key'] != key:
+        try:
+            raw, _, counts = ml.read_folder()
+            examples, _, _ = ml.prepare(raw, [], catalog(), counts)
+            rows = [(e['raw'], e['cls']) for e in examples if e.get('cls') and e['cls'] not in fc.UNCLASSIFIED]
+        except Exception:
+            rows = []
+        _folder_cache.update(key=key, rows=rows)
+    return _folder_cache['rows']
 
 
 def snapshot_suggestions(doc):
@@ -412,12 +439,28 @@ def _history_step(doc, body):
     return doc
 
 
+def _working_copy(doc):
+    """Cópia para editar: só o que as ações mudam é copiado a fundo. Os apontamentos (records)
+    nunca são alterados pelas ações e ficam compartilhados — copiá-los custava ~4 s por clique
+    numa planilha de 15 mil linhas."""
+    out = dict(doc)
+    for k in ('cards', 'columns', 'layout'):
+        if k in doc:
+            out[k] = deepcopy(doc[k])
+    for k in ('events', 'undo', 'redo'):
+        if k in doc:
+            out[k] = list(doc[k])
+    return out
+
+
 def mutate(doc, body):
-    doc = deepcopy(doc)
+    original = doc
+    doc = _working_copy(doc)
     action = body.get('action')
     if action in ('undo', 'redo'):
         return _history_step(doc, body)
-    before = _state(doc)
+    # Estado anterior para o Ctrl+Z: o documento original não é alterado, então não precisa copiar.
+    before = {k: original.get(k) for k in UNDO_KEYS}
     cards = {c['id']: c for c in doc['cards']}
     columns = {c['id']: c for c in doc['columns']}
     card = cards.get(body.get('card_id'))
@@ -807,9 +850,13 @@ def compute(records, categories=None, mode='events'):
 def options(documents):
     cat, mem = catalog(), memory()
     rows = [r for d in documents for r in reduced_records(d, cat, mem)]
-    return {key: sorted({r[field] for r in rows}) for key, field in
-            [('units', 'centro'), ('lines', 'linha'), ('failures', 'tipo_parada'), ('days', 'data_inicio'),
-             ('machines', 'equipamento'), ('classes', 'failure_class')]}
+    out = {key: sorted({r[field] for r in rows}) for key, field in
+           [('units', 'centro'), ('lines', 'linha'), ('failures', 'tipo_parada'), ('days', 'data_inicio'),
+            ('machines', 'equipamento'), ('classes', 'failure_class')]}
+    # Crítico-crônico é relativo a uma unidade fabril (descritivo 3.3): a tela abre na unidade principal.
+    units = Counter(r['centro'] for r in rows)
+    out['main_unit'] = units.most_common(1)[0][0] if len(units) > 1 else ''
+    return out
 
 
 def compare(documents, args):

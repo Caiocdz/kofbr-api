@@ -763,3 +763,39 @@ def test_bell_finish_with_held_and_release_later_to_the_right_day(client):
     day14 = client.get(f"/api/workspace/analytics?ids={board['id']}&from=2026-09-14&to=2026-09-14&count=lines").json
     assert day14['metrics']['lines'] == 1 and day14['failures'][0]['key'] == 'FALHA DE EIXO'
     assert action(client, board, 'release', card_id=rol['id']).status_code == 400
+
+
+def test_mature_model_overrides_catalog_but_not_memory(monkeypatch):
+    from workflow import learning, classify as fc
+    cat = fc.default_catalog()
+    base = fc.explain('FALHA NO SENSOR DA ESTEIRA', '', cat)
+    assert base['label'] == 'FALHA DE SENSOR'
+    monkeypatch.setitem(learning._state, 'info', {'examples': 50})
+    # Modelo imaturo: só marca como "conferir", não troca a classe.
+    young = learning.refine(base, ('FALHA DE ESTEIRA', 0.95), 'FALHA NO SENSOR DA ESTEIRA')
+    assert young['label'] == 'FALHA DE SENSOR' and young['confidence'] == 'media'
+    monkeypatch.setitem(learning._state, 'info', {'examples': 500})
+    mature = learning.refine(base, ('FALHA DE ESTEIRA', 0.95), 'FALHA NO SENSOR DA ESTEIRA')
+    assert mature['label'] == 'FALHA DE ESTEIRA' and mature['source'] == 'aprendizado' and mature['suggestion'] == 'FALHA DE SENSOR'
+    assert learning.refine(base, ('FALHA DE ESTEIRA', 0.5), 'x')['label'] == 'FALHA DE SENSOR'
+    mem = {'label': 'FALHA DE MOTOR', 'confidence': 'alta', 'source': 'memoria', 'detail': '', 'reason': ''}
+    assert learning.refine(mem, ('FALHA DE ESTEIRA', 0.99), 'x')['label'] == 'FALHA DE MOTOR'
+
+
+def test_training_folder_feeds_board_model(tmp_path, monkeypatch, client):
+    import openpyxl as xl
+    from workflow import service
+    folder = tmp_path / 'treino'
+    folder.mkdir()
+    wb = xl.Workbook()
+    wb.active.append(['Observações', 'Classificação'])
+    for i in range(30):
+        wb.active.append([f'TROCA DA MOLA DO BLOCO {i}', 'Mola danificada'])
+        wb.active.append([f'SENSOR DE PORTA SEM SINAL {i}', 'FALHA DE SENSOR'])
+    wb.active.append(['APONTAMENTO QUALQUER', 'Sem detalhes'])
+    wb.save(folder / 'jundiai.xlsx')
+    monkeypatch.setenv('KOFBR_ML_TRAIN_DIR', str(folder))
+    rows = service.folder_examples()
+    labels = {cls for _, cls in rows}
+    assert len(rows) == 60 and labels == {'FALHA DE MOLA', 'FALHA DE SENSOR'}
+    assert len(service.training_rows()) >= 60

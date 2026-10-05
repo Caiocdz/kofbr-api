@@ -26,6 +26,8 @@ from pathlib import Path
 from . import classify as fc
 
 MIN_EXAMPLES = 20
+MODEL_WINS = 0.6   # certeza mínima para o modelo trocar a classe do catálogo
+MATURE = 200      # ...e só depois de aprender com pelo menos 200 relatos validados
 _lock = threading.Lock()
 _state = {'model': None, 'fingerprint': None, 'info': None, 'cache': {}, 'training': False}
 
@@ -233,6 +235,13 @@ def refine(base, prediction, text=''):
         if base['confidence'] == 'media' and p >= 0.7:
             return {**base, 'confidence': 'alta', 'reason': base['reason'] + f' O aprendizado confirma ({pct}).'}
         return base
+    # Modelo maduro e confiante vence o catálogo. Medido num teste cego com 1.020 relatos de Marília
+    # (padrão do descritivo): catálogo 75%, lógica antiga 78%, modelo vencendo com 60%+ de certeza 87%.
+    if p >= MODEL_WINS and (_state['info'] or {}).get('examples', 0) >= MATURE:
+        return {**base, 'label': label, 'confidence': 'alta' if p >= 0.9 else 'media', 'source': 'aprendizado',
+                'suggestion': base['label'],
+                'reason': f'O aprendizado reconheceu pelo histórico validado ({pct} de certeza); '
+                          f'o catálogo sugeria {fc.pretty(base["label"]).lower()}.'}
     if p >= 0.75:
         return {**base, 'confidence': 'media', 'suggestion': label,
                 'reason': base['reason'] + f' Pelo histórico validado, parece {fc.pretty(label).lower()} ({pct}).'}

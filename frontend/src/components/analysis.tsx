@@ -92,17 +92,19 @@ function FilterFields({
     </>
   );
 }
-/** Manutenção = P.EQ.LINHA (item 1.1 do descritivo): vem selecionado por padrão. */
+/** Padrões do descritivo: manutenção = P.EQ.LINHA (item 1.1) e, com mais de uma unidade fabril
+    na base, a unidade principal (o crítico-crônico é relativo a uma unidade — item 3.3). */
 function useMaintenanceDefault(
   filters: Filters | undefined,
-  apply: (failure: string) => void,
+  apply: (failure: string, unit: string) => void,
 ) {
   const done = useRef(false);
   useEffect(() => {
     if (done.current || !filters) return;
     done.current = true;
-    const maintenance = filters.failures.find((f) => f.toUpperCase() === "P.EQ.LINHA");
-    if (maintenance) apply(maintenance);
+    const maintenance = filters.failures.find((f) => f.toUpperCase() === "P.EQ.LINHA") || "";
+    const unit = filters.main_unit || "";
+    if (maintenance || unit) apply(maintenance, unit);
   }, [filters, apply]);
 }
 const headingOf = (q: Query) =>
@@ -452,9 +454,9 @@ export function Dashboard({ analysis, day }: { analysis: Analysis; day?: string 
   const [view, setView] = useState<JkView>("machines");
   const result = useData<Analytics>(`/analytics?${queryString(query)}`);
   const filters = useData<Filters>(`/filters?ids=${analysis.id}`);
-  const applyMaintenance = useCallback((failure: string) => {
-    setDraft((d) => ({ ...d, failure }));
-    setQuery((q) => ({ ...q, failure }));
+  const applyMaintenance = useCallback((failure: string, unit: string) => {
+    setDraft((d) => ({ ...d, failure, unit: d.unit || unit }));
+    setQuery((q) => ({ ...q, failure, unit: q.unit || unit }));
   }, []);
   useMaintenanceDefault(filters.data, applyMaintenance);
   const period = periodTitle(query.from, query.to, analysis.days);
@@ -705,7 +707,7 @@ export function Compare({ analyses }: { analyses: Analysis[] }) {
       })}`;
   const result = useData<Comparison>(path || "/compare?from=&to=");
   const options = useData<Filters>("/filters");
-  const applyMaintenance = useCallback((failure: string) => setFilters((f) => ({ ...f, failure })), []);
+  const applyMaintenance = useCallback((failure: string, unit: string) => setFilters((f) => ({ ...f, failure, unit: f.unit || unit })), []);
   useMaintenanceDefault(options.data, applyMaintenance);
   const data = path ? result.data : undefined;
   const counts = useMemo(() => {

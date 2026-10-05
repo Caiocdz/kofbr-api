@@ -236,6 +236,8 @@ export type Analytics = {
   total_machines: number;
 };
 export type Filters = {
+  /** Unidade fabril com mais apontamentos quando a base tem mais de uma (o dashboard abre nela). */
+  main_unit?: string;
   units: string[];
   lines: string[];
   failures: string[];
