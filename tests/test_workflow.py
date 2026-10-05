@@ -558,7 +558,7 @@ def test_kanban_groups_with_ml_shows_certainty_and_learns(client, ml):
     assert set(l1) == {'FALHA DE SENSOR', 'FALHA DE ROLAMENTO'}
     sensor = l1['FALHA DE SENSOR']
     # Padrão: classe do catálogo; o ML só dá a % de acerto de cada card (todo card tem %).
-    assert sensor['count'] == 2 and sensor['grouped_by'] == 'ml' and sensor['source'] == 'componente'
+    assert sensor['count'] == 2 and sensor['grouped_by'] == 'falha' and sensor['source'] == 'componente'
     assert 0 < sensor['ml_pct'] <= 100 and '%' in sensor['reason']
     assert all(c['ml_pct'] is not None and c['confidence'] in ('alta', 'media', 'baixa') for c in board['cards'])
     assert [c['count'] for c in by_line['L2']] == [1]
@@ -566,10 +566,11 @@ def test_kanban_groups_with_ml_shows_certainty_and_learns(client, ml):
     # Botão "Usar machine learning": o ML refaz a classificação; desligar volta ao catálogo.
     on = action(client, board, 'use_ml', on=True).json
     assert on['use_ml'] is True and on['revision'] == board['revision'] + 1
-    assert next(c for c in on['cards'] if c['id'] == sensor['id'])['source'] == 'ml'
+    assert next(c for c in on['cards'] if c['sample'] == sensor['sample'])['source'] == 'ml'
     off = action(client, on, 'use_ml', on=False).json
     assert off['use_ml'] is False
-    assert {c['id']: c['class'] for c in off['cards']} == {c['id']: c['class'] for c in board['cards']}
+    snapshot = lambda b: sorted((c['sample'], c['class'], c['count']) for c in b['cards'])
+    assert snapshot(off) == snapshot(board)
     board = off
 
     # Validar ensina o modelo: o relato volta, em outra planilha, com 100% (já validado por pessoa).
@@ -580,6 +581,27 @@ def test_kanban_groups_with_ml_shows_certainty_and_learns(client, ml):
     again = upload(client, [['U9', '01/10/2026', 'L7', 'Rotuladora', 'Mecânica',
                              'Rolamento com defeito na posição 3 da máquina', 1]], 'outra.xlsx').json
     assert again['cards'][0]['class'] == 'FALHA DE ROLAMENTO' and again['cards'][0]['ml_pct'] == 100
+
+
+def test_one_card_per_machine_and_failure_without_redundancy(client):
+    ctx = ['U1', '30/09/2026', 'L1', 'Enchedora', 'Mecânica']
+    rows = [ctx + ['rolamento travado', 5],
+            ctx + ['troca do rolamento do eixo', 4],
+            ctx + ['ROLAMENTO TRAVADO', 3],
+            # Mesma descrição, outro contexto (outra linha): outro card.
+            ['U1', '30/09/2026', 'L2', 'Enchedora', 'Mecânica', 'rolamento travado', 2],
+            # Frase parecida, outra causa: outra falha, outro card.
+            ctx + ['motor travado', 6],
+            # Sem falha identificada: só junta o que é igual.
+            ctx + ['maquina parou sozinha', 1], ctx + ['maquina parou sozinha', 1], ctx + ['aguardando liberacao', 1]]
+    board = upload(client, rows).json
+    line = {c['id']: c['line'] for c in board['columns']}
+    cards = sorted((line[c['column_id']], c['class'], c['count']) for c in board['cards'])
+    assert cards == [('L1', 'FALHA DE MOTOR', 1), ('L1', 'FALHA DE ROLAMENTO', 3),
+                     ('L1', 'SEM MODO DE FALHA IDENTIFICADO', 1), ('L1', 'SEM MODO DE FALHA IDENTIFICADO', 2),
+                     ('L2', 'FALHA DE ROLAMENTO', 1)]
+    rol = next(c for c in board['cards'] if c['class'] == 'FALHA DE ROLAMENTO' and line[c['column_id']] == 'L1')
+    assert rol['sample'].lower() == 'rolamento travado'
 
 
 def test_drag_between_cards_keeps_position(client):

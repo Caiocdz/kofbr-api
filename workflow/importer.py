@@ -5,7 +5,7 @@ import io
 import json
 import math
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date, datetime
 from functools import lru_cache
 from uuid import uuid4
@@ -163,6 +163,8 @@ def content_hash(records):
 ML_GROUP_MIN = 50.0
 # Muda quando os campos de ML gravados nos registros mudam (2 = ml_probs): força reanotar os cards abertos.
 ML_SCHEMA = 2
+# Muda quando a regra de agrupamento dos cards muda (2 = um card por máquina e falha): reagrupa os abertos.
+GROUP_SCHEMA = 2
 
 
 def ml_annotate(records):
@@ -199,12 +201,12 @@ def ml_annotate(records):
     return aml.version() or 'sem-versao'
 
 
-def _ml_group(rec):
-    return rec.get('ml_class') if rec.get('ml_conf', 0) >= ML_GROUP_MIN and rec.get('observacao_normalizada') else None
-
-
-def group_records(records, min_similarity=0.80):
-    from . import classify as fc
+def group_records(records, min_similarity=0.80, class_of=None, columns=None):
+    """Cards = erros das máquinas conforme a planilha, sem redundância: dentro do MESMO contexto
+    (unidade, linha, equipamento, tipo de parada, subchave, sistema), todos os apontamentos com a
+    mesma falha viram um card só. O que não tem falha identificada é juntado só quando o texto é
+    igual ou muito parecido. Nunca mistura contextos. `columns` reaproveita as máquinas existentes."""
+    class_of = class_of or {}
     buckets = defaultdict(list)
     for rec in records:
         key = tuple(_norm_header(rec.get(k)) for k in CONTEXT_FIELDS)
@@ -212,7 +214,8 @@ def group_records(records, min_similarity=0.80):
             key += (rec['id'],)
         buckets[key].append(rec)
     cards = []
-    columns, col_map = [], {}
+    columns = list(columns or [])
+    col_map = {tuple(_norm_header(c[k]) for k in ('unit', 'line', 'name')): c['id'] for c in columns}
     for bucket in buckets.values():
         first = bucket[0]
         col_key = tuple(_norm_header(first[k]) for k in ('centro', 'linha', 'equipamento'))
@@ -221,17 +224,21 @@ def group_records(records, min_similarity=0.80):
             col_map[col_key] = col_id
             columns.append({'id': col_id, 'name': first['equipamento'], 'unit': first['centro'], 'line': first['linha'], 'validated': False})
         col_id = col_map[col_key]
-        # 1) O modelo de ML agrupa pelo modo de falha que reconheceu (só dentro do mesmo contexto).
+        # 1) Mesma máquina (contexto) + mesma falha = um card.
         by_class = defaultdict(list)
         for rec in bucket:
-            if _ml_group(rec):
-                by_class[rec['ml_class']].append(rec)
-        for label, members in by_class.items():
-            cards.append({'id': str(uuid4()), 'column_id': col_id, 'name': fc.pretty(label),
-                          'record_ids': [r['id'] for r in members], 'avg_similarity': 1.0, 'grouped_by': 'ml',
+            if class_of.get(rec['id']):
+                by_class[class_of[rec['id']]].append(rec)
+        for members in by_class.values():
+            # O relato mais repetido abre o card (é o que aparece como título).
+            freq = Counter(r.get('observacao_normalizada') or '' for r in members)
+            members = sorted(members, key=lambda r: (-freq[r.get('observacao_normalizada') or ''], r['id']))
+            cards.append({'id': str(uuid4()), 'column_id': col_id,
+                          'name': members[0].get('observacao_raw') or 'Descrição não informada',
+                          'record_ids': [r['id'] for r in members], 'avg_similarity': 1.0, 'grouped_by': 'falha',
                           'validated': False, 'held': False})
-        # 2) O que o modelo não reconheceu com certeza é agrupado pela semelhança do texto.
-        bucket = [r for r in bucket if not _ml_group(r)]
+        # 2) Sem falha identificada: junta só o texto igual ou muito parecido.
+        bucket = [r for r in bucket if not class_of.get(r['id'])]
         if not bucket:
             continue
         exact = defaultdict(list)
@@ -283,7 +290,8 @@ def new_document(records, filename, warnings):
     version = ml_annotate(records)
     if not version:
         warnings = warnings + ['Modelo de machine learning indisponível: agrupamento feito só pela semelhança do texto.']
-    columns, cards = group_records(records)
-    return {'id': str(uuid4()), 'revision': 1, 'ml_version': version, 'ml_schema': ML_SCHEMA, 'name': filename.rsplit('.', 1)[0], 'filename': filename,
+    from . import service
+    columns, cards = group_records(records, class_of=service.grouping_classes(records))
+    return {'id': str(uuid4()), 'revision': 1, 'ml_version': version, 'ml_schema': ML_SCHEMA, 'group_schema': GROUP_SCHEMA, 'name': filename.rsplit('.', 1)[0], 'filename': filename,
             'created_at': datetime.now().astimezone().isoformat(), 'updated_at': datetime.now().astimezone().isoformat(),
             'records': records, 'columns': columns, 'cards': cards, 'warnings': warnings, 'events': []}

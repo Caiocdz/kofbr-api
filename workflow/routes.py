@@ -60,8 +60,14 @@ def detail(analysis_id):
 
 def fresh(doc):
     """Aplica o modelo de ML atual aos cards abertos (análise antiga ou modelo retreinado) e grava."""
+    from .importer import GROUP_SCHEMA
     previous = doc['revision']
-    if service.refresh_ml(doc):
+    changed = service.refresh_ml(doc)
+    if doc.get('mode') != 'ml' and (doc.get('group_schema') != GROUP_SCHEMA or (changed and doc.get('use_ml'))):
+        # Análise antiga (cards repetidos por máquina) ou ML ligado e retreinado: um card por máquina e falha.
+        service.regroup(doc)
+        changed = True
+    if changed:
         doc['revision'] = previous + 1
         if not store.save(doc, previous):
             return store.get(doc['id']) or doc

@@ -214,6 +214,33 @@ def refresh_ml(doc):
     return True
 
 
+def grouping_classes(records, use_ml=False):
+    """Falha de cada apontamento para montar os cards: catálogo/memória (padrão) ou, com o botão
+    "Usar machine learning", a classe do ML quando ele tem 50%+ de certeza. None = sem falha identificada."""
+    from .importer import ML_GROUP_MIN
+    details = details_for(records, catalog(), memory())
+    out = {}
+    for r in records:
+        label = details[r['id']]['label']
+        if use_ml and r.get('ml_class') and r.get('ml_conf', 0) >= ML_GROUP_MIN:
+            label = r['ml_class']
+        out[r['id']] = None if label in fc.UNCLASSIFIED else label
+    return out
+
+
+def regroup(doc):
+    """Remonta os cards ainda abertos (não validados, fora do sino, sem classe do analista): um card por
+    máquina (contexto) e falha. Cards validados ou corrigidos pelo analista não mudam."""
+    from . import importer
+    keep = [c for c in doc['cards'] if c['validated'] or c['held'] or c.get('failure_class')]
+    loose = {i for c in doc['cards'] if c not in keep for i in c['record_ids']}
+    records = [r for r in doc['records'] if r['id'] in loose]
+    columns, cards = importer.group_records(records, class_of=grouping_classes(records, doc.get('use_ml')),
+                                            columns=doc['columns'])
+    doc['columns'], doc['cards'] = columns, keep + cards
+    doc['group_schema'] = importer.GROUP_SCHEMA
+
+
 def final_class(card, auto_label):
     """Classe que vale para os indicadores: a do analista, a congelada na validação ou a automática."""
     return card.get('failure_class') or (card.get('validated_class') if card.get('validated') else None) or auto_label
@@ -490,6 +517,7 @@ def mutate(doc, body):
     elif action == 'use_ml':
         # Opcional: o machine learning refaz a classificação dos cards ainda não validados (desligar volta ao catálogo).
         doc['use_ml'] = bool(body.get('on'))
+        regroup(doc)
     elif action == 'hold':
         card['held'], card['validated'] = True, False
     elif action == 'move':
