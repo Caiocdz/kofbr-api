@@ -18,7 +18,7 @@ import {
   type Detail,
   type SheetReport,
 } from "@/lib/radar";
-import { Icon, Modal, Loading, ErrorNotice } from "./ui";
+import { Icon, Modal, Loading, ErrorNotice, Steps } from "./ui";
 import CatalogEditor from "./catalog";
 import BellDrawer from "./bell";
 import { ConfidenceBadge, MoreMenu, SafeBatchModal, type GroupBy, type Queue } from "./automation";
@@ -1254,6 +1254,7 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
           <Icon name="back" size={17} />
         </button>
         <div className="kb-head-text">
+          <Steps current={2} />
           <h1 title={board.name}>{board.name}</h1>
           <p>
             {fmt(board.records_count)} apontamentos · {fmt(failureKinds)} tipos de falha · {fmt(board.columns.length)} máquinas

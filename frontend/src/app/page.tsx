@@ -25,22 +25,12 @@ import Kanban from "@/components/kanban";
 import MlFill from "@/components/ml-fill";
 import Pipeline from "@/components/pipeline";
 import Desempenho from "@/components/desempenho";
+import { GargaloMark, Ribbon, Splash } from "@/components/brand";
 import { Dashboard, Compare } from "@/components/analysis";
 import "./home.css";
 import "./kanban.css";
 import "./desempenho.css";
-
-/** Tampinha de garrafa (coroa com 21 dentes), gerada por código. */
-const CAP_PATH = (() => {
-  const teeth = 21,
-    pts: string[] = [];
-  for (let i = 0; i < teeth * 2; i++) {
-    const a = (Math.PI * i) / teeth - Math.PI / 2,
-      r = i % 2 ? 20.2 : 23.4;
-    pts.push(`${(24 + r * Math.cos(a)).toFixed(2)},${(24 + r * Math.sin(a)).toFixed(2)}`);
-  }
-  return `M${pts.join("L")}Z`;
-})();
+import "./ultimate.css";
 
 const weekday = (date: string) =>
   new Date(`${date}T12:00:00`)
@@ -96,7 +86,7 @@ function Folder({ day, index }: { day: Day; index: number }) {
                     width={slot * 0.64}
                     height={h}
                     rx="2"
-                    fill={i < 2 ? "#e0101f" : "#f3b9bf"}
+                    fill={i < 2 ? "#e4002b" : "#f6b8c3"}
                   />
                 );
               })}
@@ -484,6 +474,7 @@ export default function Page() {
   }[route.view];
   return (
     <div className="app-shell">
+      <Splash />
       {mobile && (
         <button
           className="sidebar-scrim"
@@ -495,97 +486,51 @@ export default function Page() {
         className={`sidebar ${mobile ? "open" : ""}`}
         aria-label="Navegação principal"
       >
-        <span className="fizz" aria-hidden="true">
-          {Array.from({ length: 14 }, (_, i) => (
-            <i key={i} />
-          ))}
-        </span>
-        <a href="#inicio" className="brand" onClick={() => setMobile(false)}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/kofbr-logo.png"
-            alt="Troféu KOF BR"
-            className="brand-logo"
-            width={49}
-            height={90}
-          />
+        <a href="#inicio" className="brand" onClick={() => setMobile(false)} aria-label="Gargalo, início">
+          <span className="brand-mark">
+            <GargaloMark size={58} />
+          </span>
           <span className="brand-text">
             <span className="brand-word">gargalo</span>
-            <small>RADAR DE CONFIABILIDADE</small>
+            <small>Radar de Confiabilidade</small>
           </span>
         </a>
-        <p className="brand-slogan">
-          <span>KOF<em>BR</em></span>
-          Organizar. Validar. Entender.
-        </p>
         <button
           className={`import-nav ${route.view === "importar" ? "active" : ""}`}
           onClick={() => navigate({ view: "importar" })}
         >
-          <span className="nav-plus cap" aria-hidden="true">
-            <svg viewBox="0 0 48 48" className="cap-shape">
-              <path d={CAP_PATH} />
-              <circle cx="24" cy="24" r="15.5" />
-            </svg>
-            <Icon name="plus" size={20} />
+          <span className="nav-plus" aria-hidden="true">
+            <Icon name="plus" size={18} />
           </span>
-          <span>
-            Importar
-            <small>planilha .xlsx / .csv</small>
-          </span>
+          Importar planilha
         </button>
-        <div className="nav-section-label">
-          <i aria-hidden="true" />
-          ÁREA DE TRABALHO
-        </div>
-        <nav>
-          <button
-            className={`nav-link ${route.view === "inicio" ? "active" : ""}`}
-            onClick={() => navigate({ view: "inicio" })}
-            aria-current={route.view === "inicio" ? "page" : undefined}
-          >
-            <Icon name="home" size={19} />
-            <span>Início</span>
-          </button>
-          <button
-            className={`nav-link ${route.view === "comparar" ? "active" : ""}`}
-            onClick={() => navigate({ view: "comparar" })}
-            aria-current={route.view === "comparar" ? "page" : undefined}
-          >
-            <Icon name="compare" size={19} />
-            <span>Comparar</span>
-          </button>
-          <button
-            className={`nav-link ${route.view === "desempenho" ? "active" : ""}`}
-            onClick={() => navigate({ view: "desempenho" })}
-            aria-current={route.view === "desempenho" ? "page" : undefined}
-          >
-            <Icon name="brain" size={19} />
-            <span>Desempenho da ML</span>
-          </button>
+        <nav aria-label="Seções">
+          {(
+            [
+              ["inicio", "home", "Início"],
+              ["comparar", "compare", "Comparar períodos"],
+              ["desempenho", "brain", "Desempenho da ML"],
+            ] as const
+          ).map(([view, icon, label]) => {
+            const on = route.view === view || (view === "inicio" && (route.view === "quadro" || route.view === "analise"));
+            return (
+              <button
+                key={view}
+                className={`nav-link ${on ? "active" : ""}`}
+                onClick={() => navigate({ view })}
+                aria-current={on ? "page" : undefined}
+              >
+                <Icon name={icon} size={19} />
+                <span>{label}</span>
+              </button>
+            );
+          })}
         </nav>
         <div className="sidebar-bottom">
-          <div className="sidebar-can">
-            <span className="can-drops" aria-hidden="true" />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/kofbr-logo.png" alt="" className="can-mark" width={60} height={110} />
-            <small>COCA-COLA FEMSA BRASIL</small>
-            <b>Clareza em cada decisão.</b>
-            <p>Dados organizados, validação humana e análises confiáveis para a manutenção.</p>
-            <span className="can-tag">
-              <Icon name="shield" size={13} />
-              Operações &amp; Confiabilidade
-            </span>
-          </div>
+          <Ribbon className="sidebar-ribbon" />
           <div className="sidebar-footer">
-            <span className="brand-unit">
-              KOF<span>BR</span>
-            </span>
-            <span>
-              COCA-COLA FEMSA
-              <br />
-              BRASIL
-            </span>
+            <b>Coca-Cola FEMSA Brasil</b>
+            <span>Manutenção e Confiabilidade</span>
           </div>
         </div>
       </aside>
@@ -600,14 +545,7 @@ export default function Page() {
             >
               <Icon name="menu" />
             </button>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/kofbr-logo.png"
-              alt=""
-              className="topbar-logo"
-              width={20}
-              height={36}
-            />
+            <GargaloMark size={30} className="topbar-logo" />
             <div className="topbar-title">
               <span className="breadcrumb-root">Área de trabalho</span>
               <b>{title}</b>

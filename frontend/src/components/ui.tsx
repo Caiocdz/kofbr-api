@@ -315,6 +315,19 @@ export function Empty({
     </div>
   );
 }
+const STEPS = ["Importar", "Validar", "Analisar"];
+export function Steps({ current }: { current: number }) {
+  return (
+    <ol className="steps" aria-label={`Etapa ${current} de ${STEPS.length}`}>
+      {STEPS.map((label, i) => (
+        <li key={label} className={i + 1 < current ? "done" : i + 1 === current ? "on" : ""} aria-current={i + 1 === current ? "step" : undefined}>
+          <i>{i + 1 < current ? "✓" : i + 1}</i>
+          {label}
+        </li>
+      ))}
+    </ol>
+  );
+}
 export function Heading({
   eyebrow,
   title,
@@ -326,10 +339,13 @@ export function Heading({
   text: string;
   action?: ReactNode;
 }) {
+  // "01 / IMPORTAR APONTAMENTOS" vira o trilho das etapas (importar → validar → analisar).
+  // Rótulos que só repetem o título da página não aparecem.
+  const step = /^0?(\d)\s*\//.exec(eyebrow || "");
   return (
     <div className="page-heading">
       <div>
-        <div className="eyebrow">{eyebrow}</div>
+        {step && <Steps current={Number(step[1])} />}
         <h1>{title}</h1>
         <p>{text}</p>
       </div>

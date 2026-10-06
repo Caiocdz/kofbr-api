@@ -609,7 +609,7 @@ def predict(texts):
     return out
 
 
-FILLS = {'Alta': 'E8F6EF', 'Média': 'FDF3E2', 'Baixa': 'FDECEE', ANALYST: 'EBF1FC'}
+FILLS = {'Alta': 'E8F6EF', 'Média': 'FDF3E2', 'Baixa': 'FFF0F2', ANALYST: 'EBF1FC'}
 
 
 def _paint(ws, row, cols, item):

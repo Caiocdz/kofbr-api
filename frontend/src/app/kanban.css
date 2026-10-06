@@ -7,16 +7,16 @@
   --kb-ok-soft: #e7f6ef;
   --kb-warn: #e0a100;
   --kb-warn-soft: #fff6dc;
-  --kb-bad: #e0101f;
-  --kb-bad-soft: #fdecee;
+  --kb-bad: #e4002b;
+  --kb-bad-soft: #fff0f2;
   --kb-man: #3a67c4;
   --kb-man-soft: #ebf1fc;
   --kb-done: #9aa3a0;
-  --kb-bg: #f5f4f2;
+  --kb-bg: #f3f5f8;
   --kb-card: #ffffff;
-  --kb-line: #ece9e6;
-  --kb-text: #171515;
-  --kb-soft: #6d6865;
+  --kb-line: #e7eaee;
+  --kb-text: #1d1d1f;
+  --kb-soft: #5f646d;
   --kb-radius: 14px;
   display: grid;
   gap: 16px;
@@ -54,7 +54,7 @@
 .kb-round.active {
   color: var(--kb-text);
   border-color: var(--line-strong);
-  background: #faf9f8;
+  background: #f8f9fb;
 }
 .kb-head-text {
   flex: 1;
@@ -100,7 +100,7 @@
   border-radius: 20px;
   background: var(--kb-card);
   border: 1px solid var(--kb-line);
-  box-shadow: 0 1px 2px #1413130a;
+  box-shadow: 0 1px 2px #1d1d1f0a;
 }
 .kb-ml-score {
   display: grid;
@@ -287,7 +287,7 @@
   display: inline-flex;
   padding: 3px;
   border-radius: 999px;
-  background: #ecebe9;
+  background: #e9ecf0;
 }
 .kb-seg button {
   padding: 6px 14px;
@@ -300,7 +300,7 @@
 .kb-seg button.on {
   background: #fff;
   color: var(--kb-text);
-  box-shadow: 0 1px 3px #14131318;
+  box-shadow: 0 1px 3px #1d1d1f18;
 }
 .kb-search {
   flex: 0 1 300px;
@@ -317,7 +317,7 @@
 }
 .kb-search:focus-within {
   border-color: var(--line-strong);
-  box-shadow: 0 0 0 3px #14131310;
+  box-shadow: 0 0 0 3px #1d1d1f10;
 }
 .kb-search input {
   flex: 1;
@@ -377,7 +377,7 @@
 }
 .kb-btn:hover:not(:disabled) {
   border-color: var(--line-strong);
-  background: #faf9f8;
+  background: #f8f9fb;
 }
 .kb-btn.primary {
   background: var(--red);
@@ -410,7 +410,7 @@
   padding: 2px 2px 18px;
   min-height: 420px;
   scrollbar-width: thin;
-  scrollbar-color: #d6d2cf transparent;
+  scrollbar-color: #d3d8df transparent;
 }
 .kb-col {
   flex: none;
@@ -475,7 +475,7 @@
   height: 3px;
   margin: 0 14px 8px;
   border-radius: 3px;
-  background: #e6e3e0;
+  background: #e2e6eb;
   overflow: hidden;
 }
 .kb-col-progress i {
@@ -495,13 +495,13 @@
   flex-direction: column;
   gap: 8px;
   scrollbar-width: thin;
-  scrollbar-color: #d6d2cf transparent;
+  scrollbar-color: #d3d8df transparent;
 }
 .kb-empty {
   display: grid;
   place-items: center;
   min-height: 72px;
-  border: 1.5px dashed #dcd8d5;
+  border: 1.5px dashed #d7dce3;
   border-radius: 12px;
   font-size: 12px;
   color: var(--muted);
@@ -513,8 +513,8 @@
   flex: none;
   background: var(--kb-card);
   border-radius: var(--kb-radius);
-  border: 1px solid #efedeb;
-  box-shadow: 0 1px 2px #1413130a;
+  border: 1px solid #ebeef2;
+  box-shadow: 0 1px 2px #1d1d1f0a;
   cursor: grab;
   user-select: none;
   transition: box-shadow 0.15s, border-color 0.15s, opacity 0.15s;
@@ -534,8 +534,8 @@
   opacity: 0.55;
 }
 .kb-box:hover {
-  border-color: #e3dfdc;
-  box-shadow: 0 4px 14px -6px #14131326;
+  border-color: #dde1e7;
+  box-shadow: 0 4px 14px -6px #1d1d1f26;
 }
 .kb-box.tone-done {
   background: #fbfbfa;
@@ -550,7 +550,7 @@
 }
 @keyframes kb-flash {
   0%, 40% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 40%, transparent); }
-  100% { box-shadow: 0 1px 2px #1413130a; }
+  100% { box-shadow: 0 1px 2px #1d1d1f0a; }
 }
 /* Linha que mostra onde o item vai cair (em cima desta caixa / no fim da coluna). */
 .kb-box.drop-before::before,
@@ -560,7 +560,7 @@
   height: 3px;
   border-radius: 3px;
   background: var(--red);
-  box-shadow: 0 0 0 3px #e0101f22;
+  box-shadow: 0 0 0 3px #e4002b22;
 }
 .kb-box.drop-before::before {
   position: absolute;
@@ -610,7 +610,7 @@
   cursor: pointer;
 }
 .kb-class:hover:not(:disabled) {
-  background: #ebe8e5;
+  background: #e6e9ee;
   color: var(--kb-text);
 }
 .kb-class.warn {
@@ -672,8 +672,8 @@
   display: grid;
   place-items: center;
   border-radius: 50%;
-  border: 1.5px solid #dcd8d5;
-  color: #b9b4b1;
+  border: 1.5px solid #d7dce3;
+  color: #b4b9c1;
   background: #fff;
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
@@ -750,7 +750,7 @@
   list-style: none;
   margin: 0;
   padding: 4px 6px 6px;
-  border-top: 1px solid #f2f0ee;
+  border-top: 1px solid #eef1f4;
   display: grid;
   gap: 1px;
 }
@@ -763,7 +763,7 @@
   cursor: grab;
 }
 .kb-item:hover {
-  background: #faf9f8;
+  background: #f8f9fb;
 }
 .kb-item.is-flash {
   animation: kb-flash 1.3s var(--ease);
@@ -808,7 +808,7 @@
   justify-content: center;
   gap: 8px;
   border-radius: 16px;
-  border: 1.5px dashed #d9d5d2;
+  border: 1.5px dashed #d5dae1;
   color: var(--muted);
   font-size: 13px;
   font-weight: 700;
@@ -816,7 +816,7 @@
 .kb-add:hover {
   border-color: var(--kb-soft);
   color: var(--kb-text);
-  background: #faf9f8;
+  background: #f8f9fb;
 }
 
 /* Fantasma que acompanha o ponteiro */
@@ -833,8 +833,8 @@
   padding: 9px 12px;
   border-radius: 12px;
   background: #fff;
-  border: 1px solid #e3dfdc;
-  box-shadow: 0 18px 40px -12px #14131355;
+  border: 1px solid #dde1e7;
+  box-shadow: 0 18px 40px -12px #1d1d1f55;
   font-size: 12.5px;
   font-weight: 700;
   color: var(--kb-text);
@@ -886,7 +886,7 @@ body.kb-grabbing * {
   gap: 14px;
   padding: 8px 8px 8px 10px;
   border-radius: 999px;
-  background: #171515ee;
+  background: #1d1d1fee;
   backdrop-filter: blur(10px);
   color: #fff;
   box-shadow: 0 20px 44px -18px #000000a0;
@@ -907,7 +907,7 @@ body.kb-grabbing * {
   position: absolute;
   inset: 4px;
   border-radius: 50%;
-  background: #171515;
+  background: #1d1d1f;
 }
 .kb-ring > * {
   position: relative;
@@ -994,7 +994,7 @@ body.kb-grabbing * {
   height: 6px;
   max-width: 280px;
   border-radius: 6px;
-  background: #ecebe9;
+  background: #e9ecf0;
   overflow: hidden;
 }
 .kb-ml-calib-bar i {
@@ -1018,7 +1018,7 @@ body.kb-grabbing * {
   background: #ffffffe8;
   backdrop-filter: blur(8px);
   border: 1px solid var(--kb-line);
-  box-shadow: 0 1px 2px #1413130a;
+  box-shadow: 0 1px 2px #1d1d1f0a;
 }
 .kb-rail {
   position: relative;
@@ -1033,7 +1033,7 @@ body.kb-grabbing * {
   outline: none;
 }
 .kb-rail:focus-visible {
-  box-shadow: 0 0 0 3px #14131320;
+  box-shadow: 0 0 0 3px #1d1d1f20;
 }
 .kb-rail.is-dragging {
   cursor: grabbing;
@@ -1049,13 +1049,13 @@ body.kb-grabbing * {
   flex: 1;
   min-width: 1px;
   border-radius: 3px;
-  background: #d9d5d2;
+  background: #d5dae1;
 }
 .kb-rail-segments span.ok {
   background: #8fd1b4;
 }
 .kb-rail-segments span.empty {
-  background: #ebe8e5;
+  background: #e6e9ee;
 }
 .kb-rail-thumb {
   position: absolute;
@@ -1068,7 +1068,7 @@ body.kb-grabbing * {
   background: #ffffffcc;
   border: 1.5px solid #bdb7b3;
   color: var(--kb-soft);
-  box-shadow: 0 1px 3px #14131322;
+  box-shadow: 0 1px 3px #1d1d1f22;
   pointer-events: none;
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
@@ -1135,7 +1135,7 @@ body.kb-grabbing * {
   gap: 4px;
   padding: 12px 14px;
   border-radius: 14px;
-  background: #f5f4f2;
+  background: #f3f5f8;
 }
 .kb-learned-grid b {
   font-size: 18px;
@@ -1171,7 +1171,7 @@ body.kb-grabbing * {
   color: #fff;
   font-size: 12.5px;
   font-weight: 750;
-  box-shadow: 0 10px 24px -10px #e0101f99;
+  box-shadow: 0 10px 24px -10px #e4002b99;
   pointer-events: none;
 }
 .kb-merge {
@@ -1189,12 +1189,12 @@ body.kb-grabbing * {
   gap: 3px;
   padding: 12px 14px;
   border-radius: 14px;
-  background: #f5f4f2;
+  background: #f3f5f8;
   min-width: 0;
 }
 .kb-merge-pair > div:last-child {
   background: #fff5f5;
-  box-shadow: inset 0 0 0 1.5px #f3c3c8;
+  box-shadow: inset 0 0 0 1.5px #f8c6cf;
 }
 .kb-merge-pair small {
   font-size: 10.5px;
@@ -1243,7 +1243,7 @@ body.kb-grabbing * {
   color: var(--kb-text);
 }
 .kb-undo .kb-icon:disabled {
-  color: #c9c4c1;
+  color: #c4c9d0;
 }
 .kb-toast {
   position: fixed;
@@ -1259,7 +1259,7 @@ body.kb-grabbing * {
   border-radius: 999px;
   background: #fff;
   border: 1px solid var(--kb-line);
-  box-shadow: 0 16px 36px -14px #1413134d;
+  box-shadow: 0 16px 36px -14px #1d1d1f4d;
   font-size: 13px;
   font-weight: 650;
   animation: kb-toast-in 0.25s var(--ease) both;
@@ -1329,21 +1329,21 @@ body.kb-grabbing * {
 /* ---------- Sino de revisão (painel lateral) ---------- */
 .kb-round.has-items {
   color: var(--red);
-  border-color: #f3c3c8;
+  border-color: #f8c6cf;
   background: #fff7f7;
 }
 .bl-scrim {
   position: fixed;
   inset: 0;
   z-index: 180;
-  background: #14131340;
+  background: #1d1d1f40;
   backdrop-filter: blur(2px);
   animation: bl-fade 0.2s ease both;
 }
 .bl {
   --ok: #1f9d6b;
   --warn: #e0a100;
-  --bad: #e0101f;
+  --bad: #e4002b;
   --man: #3a67c4;
   position: fixed;
   top: 12px;
@@ -1355,7 +1355,7 @@ body.kb-grabbing * {
   flex-direction: column;
   border-radius: 24px;
   background: #fff;
-  box-shadow: 0 30px 70px -20px #14131366;
+  box-shadow: 0 30px 70px -20px #1d1d1f66;
   animation: bl-in 0.28s var(--ease) both;
   overflow: hidden;
 }
@@ -1374,7 +1374,7 @@ body.kb-grabbing * {
   align-items: flex-start;
   gap: 12px;
   padding: 20px 18px 16px 20px;
-  border-bottom: 1px solid #f0eeec;
+  border-bottom: 1px solid #eceff3;
 }
 .bl-icon {
   flex: none;
@@ -1422,7 +1422,7 @@ body.kb-grabbing * {
   display: grid;
   align-content: start;
   gap: 10px;
-  background: #faf9f8;
+  background: #f8f9fb;
 }
 .bl-item {
   display: grid;
@@ -1430,7 +1430,7 @@ body.kb-grabbing * {
   padding: 14px 14px 12px;
   border-radius: 16px;
   background: #fff;
-  border: 1px solid #efedeb;
+  border: 1px solid #ebeef2;
   box-shadow: inset 3px 0 0 var(--t);
 }
 .bl-title {
@@ -1492,15 +1492,15 @@ body.kb-grabbing * {
   min-height: 34px;
   padding: 8px 10px;
   border-radius: 10px;
-  border: 1px solid #ebe8e5;
-  background: #fbfaf9;
+  border: 1px solid #e6e9ee;
+  background: #fafbfc;
   font: inherit;
   font-size: 12.5px;
   color: var(--ink);
 }
 .bl-note:focus {
   outline: none;
-  border-color: #cfcac6;
+  border-color: #c9cfd7;
   background: #fff;
 }
 .bl-actions {
@@ -1515,15 +1515,15 @@ body.kb-grabbing * {
   height: 30px;
   padding: 0 11px;
   border-radius: 999px;
-  border: 1px solid #e3dfdc;
+  border: 1px solid #dde1e7;
   background: #fff;
   font-size: 12px;
   font-weight: 750;
   color: var(--ink);
 }
 .bl-btn:hover:not(:disabled) {
-  border-color: #cfcac6;
-  background: #faf9f8;
+  border-color: #c9cfd7;
+  background: #f8f9fb;
 }
 .bl-btn.primary {
   background: #1f9d6b;

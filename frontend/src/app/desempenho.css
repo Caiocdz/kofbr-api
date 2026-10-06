@@ -2,7 +2,7 @@
 .dp {
   --ok: #1f9d6b;
   --warn: #b88400;
-  --bad: #e0101f;
+  --bad: #e4002b;
   display: grid;
   gap: 18px;
 }
@@ -60,7 +60,7 @@
   width: 100%;
   max-height: 240px;
 }
-.dp-curve .grid { stroke: #eceae8; }
+.dp-curve .grid { stroke: #e8ebef; }
 .dp-curve text {
   font-size: 11px;
   fill: var(--muted);
@@ -88,7 +88,7 @@
   gap: 10px;
   padding: 22px;
   border-radius: 14px;
-  background: #f6f5f4;
+  background: #f4f6f8;
   color: var(--ink-soft);
   font-size: 13.5px;
 }
@@ -113,7 +113,7 @@
 }
 .dp-table td {
   padding: 10px 12px;
-  border-bottom: 1px solid #f2f0ee;
+  border-bottom: 1px solid #eef1f4;
   vertical-align: middle;
 }
 .dp-table td.num {
@@ -140,7 +140,7 @@
   padding: 2px 9px;
   border-radius: 999px;
   font-weight: 800;
-  background: #f6f5f4;
+  background: #f4f6f8;
 }
 @media (max-width: 1000px) {
   .dp-kpis {
@@ -170,7 +170,7 @@
   border-radius: 16px;
   background: #fff;
   border: 1px solid var(--line);
-  box-shadow: 0 18px 40px -16px #1413134d;
+  box-shadow: 0 18px 40px -16px #1d1d1f4d;
 }
 .export-menu-panel > button,
 .export-menu-panel > a {
@@ -185,7 +185,7 @@
 }
 .export-menu-panel > button:hover,
 .export-menu-panel > a:hover {
-  background: #f6f5f4;
+  background: #f4f6f8;
 }
 .export-menu-panel svg {
   flex: none;

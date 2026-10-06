@@ -51,7 +51,7 @@ def _header(row):
 # ----------------------------------------------------------------------------- planilha completa
 
 FULL_COLUMN = 'Classificação'
-FULL_FILLS = {'validada': 'E7F6EF', 'alta': 'E7F6EF', 'media': 'FFF6DC', 'baixa': 'FDECEE'}
+FULL_FILLS = {'validada': 'E7F6EF', 'alta': 'E7F6EF', 'media': 'FFF6DC', 'baixa': 'FFF0F2'}
 FULL_NOTE = ('Classificação padronizada (FALHA DE <componente>).\n'
              'Verde: validada no quadro ou com confiança alta.\n'
              'Amarelo: sugerida pela ML ou pelo catálogo, vale conferir.\n'
@@ -161,7 +161,7 @@ def sheet_examples():
 
 # ----------------------------------------------------------------------------- planilha de saída
 
-RED = 'E0101F'
+RED = 'E4002B'
 
 
 def _variations(g, limit=3):
@@ -185,7 +185,7 @@ def build_workbook(groups, meta, with_context=False):
     wb = openpyxl.Workbook()
     head_fill, head_font = PatternFill('solid', fgColor=RED), Font(bold=True, color='FFFFFF')
     thin = Border(bottom=Side(style='thin', color='EEEEEE'))
-    tone = {'alta': 'E7F6EF', 'media': 'FFF6DC', 'baixa': 'FDECEE'}
+    tone = {'alta': 'E7F6EF', 'media': 'FFF6DC', 'baixa': 'FFF0F2'}
 
     def table(ws, headers, widths, rows, colored=None):
         ws.append(headers)

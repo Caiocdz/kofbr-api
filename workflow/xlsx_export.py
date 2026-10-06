@@ -138,7 +138,7 @@ def _head(cell, field, text):
         cell.font = HEAD_FONT
 
 
-DOC_RED = PatternFill('solid', fgColor='E0101F')
+DOC_RED = PatternFill('solid', fgColor='E4002B')
 
 
 DOC_HEADS = ['', None, 'T (min)', 'Q', 'MTTR', 'T.T.A', '%', '80%', 'Categoria']

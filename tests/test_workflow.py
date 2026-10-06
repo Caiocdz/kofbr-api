@@ -25,6 +25,8 @@ def spreadsheet(rows, headers=HEADERS):
 def client(tmp_path, monkeypatch):
     from workflow import learning
     monkeypatch.setenv('KOFBR_DATA_DIR', str(tmp_path))
+    # Isola dos dados reais: a pasta de planilhas de treino do pacote não entra nos testes.
+    monkeypatch.setenv('KOFBR_ML_TRAIN_DIR', str(tmp_path / 'sem-pasta-de-treino'))
     learning.reset()
     # Nos testes o treino é chamado explicitamente (sem threads em segundo plano).
     monkeypatch.setattr(learning, 'retrain_in_background', lambda build: None)

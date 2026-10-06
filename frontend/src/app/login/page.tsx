@@ -1,76 +1,35 @@
 import Link from "next/link";
+import { GargaloMark, Ribbon } from "@/components/brand";
+import "../ultimate.css";
+import "./login.css";
+
 export default function LoginPage() {
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        display: "grid",
-        placeItems: "center",
-        padding: 16,
-      }}
-    >
-      <div
-        style={{
-          maxWidth: 520,
-          width: "100%",
-          padding: "44px 40px",
-          background: "#fff",
-          borderRadius: 28,
-          boxShadow: "0 40px 100px -30px #000000a0",
-        }}
-      >
-        <span
-          style={{
-            fontFamily: "Lokicola, cursive",
-            fontSize: 54,
-            lineHeight: 1,
-            color: "#e0101f",
-          }}
-        >
-          gargalo
+    <main className="lg">
+      <section className="lg-brand" aria-hidden="true">
+        <span className="lg-bubbles">
+          {Array.from({ length: 12 }, (_, i) => (
+            <i key={i} style={{ "--i": i } as React.CSSProperties} />
+          ))}
         </span>
-        <p
-          style={{
-            fontSize: 11,
-            fontWeight: 800,
-            letterSpacing: 2,
-            color: "#e0101f",
-            marginTop: 14,
-          }}
-        >
-          RADAR DE CONFIABILIDADE
-        </p>
-        <h1
-          style={{
-            fontSize: 34,
-            fontWeight: 800,
-            letterSpacing: -1.4,
-            lineHeight: 1.12,
-            margin: "18px 0 12px",
-          }}
-        >
-          Clareza em cada decisão.
-        </h1>
-        <p style={{ color: "#5e5a58", lineHeight: 1.7, fontSize: 15 }}>
-          Importe apontamentos, revise os agrupamentos e explore os indicadores
-          da operação.
-        </p>
-        <Link
-          href="/"
-          style={{
-            display: "inline-flex",
-            background: "#e0101f",
-            color: "white",
-            fontWeight: 700,
-            borderRadius: 999,
-            padding: "14px 24px",
-            marginTop: 28,
-            boxShadow: "0 10px 24px -8px #e0101f80",
-          }}
-        >
-          Acessar área de trabalho →
-        </Link>
-      </div>
+        <GargaloMark size={260} className="lg-mark" />
+        <Ribbon className="lg-ribbon" />
+      </section>
+      <section className="lg-panel">
+        <div className="lg-card">
+          <span className="lg-word">gargalo</span>
+          <p className="lg-sub">Radar de Confiabilidade · Coca-Cola FEMSA Brasil</p>
+          <h1>Da parada à decisão de manutenção.</h1>
+          <p className="lg-text">
+            Importe os apontamentos do SAP, valide a classificação das falhas e veja o Pareto e o crítico-crônico da sua
+            unidade.
+          </p>
+          <Link href="/" className="lg-btn">
+            Entrar na área de trabalho
+          </Link>
+          <p className="lg-note">Roda neste computador. Nenhum dado sai da sua máquina.</p>
+        </div>
+      </section>
     </main>
   );
 }

@@ -41,7 +41,7 @@ function Curve({ values, labels }: { values: number[]; labels: string[] }) {
           <circle cx={x(i)} cy={y(v)} r="4" />
           <title>{`${labels[i]}: ${fmt(v, 1)}%`}</title>
           {(values.length <= 12 || i === values.length - 1) && (
-            <text x={x(i)} y={y(v) - 10} textAnchor="middle" className="val">
+            <text x={x(i)} y={y(v) - 10} textAnchor={i === 0 ? "start" : i === values.length - 1 ? "end" : "middle"} className="val">
               {fmt(v, 0)}%
             </text>
           )}
