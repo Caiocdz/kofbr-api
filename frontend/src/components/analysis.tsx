@@ -92,17 +92,19 @@ function FilterFields({
     </>
   );
 }
-/** Manutenção = P.EQ.LINHA (item 1.1 do descritivo): vem selecionado por padrão. */
+/** Padrões do descritivo: manutenção = P.EQ.LINHA (item 1.1) e, com mais de uma unidade fabril
+    na base, a unidade principal (o crítico-crônico é relativo a uma unidade — item 3.3). */
 function useMaintenanceDefault(
   filters: Filters | undefined,
-  apply: (failure: string) => void,
+  apply: (failure: string, unit: string) => void,
 ) {
   const done = useRef(false);
   useEffect(() => {
     if (done.current || !filters) return;
     done.current = true;
-    const maintenance = filters.failures.find((f) => f.toUpperCase() === "P.EQ.LINHA");
-    if (maintenance) apply(maintenance);
+    const maintenance = filters.failures.find((f) => f.toUpperCase() === "P.EQ.LINHA") || "";
+    const unit = filters.main_unit || "";
+    if (maintenance || unit) apply(maintenance, unit);
   }, [filters, apply]);
 }
 const headingOf = (q: Query) =>
@@ -137,7 +139,7 @@ function CategoryNote({ data }: { data: Analytics }) {
     <div className="info-notice">
       <Icon name="target" />
       Mostrando {fmt(data.machines.length)} de {fmt(data.total_machines)} equipamentos ({data.category_filter.join(", ")}).
-      Os cortes do Jack-Knife continuam sendo as medianas do conjunto completo.
+      Os cortes do Jack-Knife continuam sendo os do conjunto completo (Q médio e MTTR do conjunto).
     </div>
   );
 }
@@ -317,7 +319,7 @@ function MachineDrill({ machine, query, onClose }: { machine: Machine; query: Qu
           </div>
         )}
         <p className="helper">
-          A categoria de cada modo usa as medianas desta máquina. Comece pelos modos dentro dos 80% (coluna destacada).
+          A categoria de cada modo usa os cortes desta máquina (Q médio e MTTR da máquina). Comece pelos modos dentro dos 80% (coluna destacada).
         </p>
       </div>
     </Modal>
@@ -377,6 +379,72 @@ function StrategyPanel({ data, onPick }: { data: Analytics; onPick: (category: s
 }
 
 /* ============================ Dashboard ============================ */
+/** "Exportar Excel": o resumo SAP (Pareto/Jack-Knife) ou a planilha resumida por observação. */
+function ExportMenu({ onSummary, resumoHref, fullHref }: { onSummary: () => void; resumoHref: string; fullHref: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const down = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", down);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("pointerdown", down);
+      document.removeEventListener("keydown", key);
+    };
+  }, [open]);
+  return (
+    <div className="export-menu" ref={ref}>
+      <button className="btn excel" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Icon name="sheet" size={16} />
+        Exportar Excel
+        <Icon name="chevron" size={13} />
+      </button>
+      {open && (
+        <div className="export-menu-panel" role="menu">
+          {fullHref && (
+            <a role="menuitem" className="main" href={fullHref} download onClick={() => setOpen(false)}>
+              <Icon name="sheet" size={16} />
+              <span>
+                <b>Planilha completa com Classificação</b>
+                <small>A planilha importada, com todas as linhas e colunas, mais a coluna Classificação que saiu do quadro</small>
+              </span>
+            </a>
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onSummary();
+            }}
+          >
+            <Icon name="chart" size={16} />
+            <span>
+              <b>Resumo da análise</b>
+              <small>Layout SAP com Pareto e crítico-crônico do filtro atual</small>
+            </span>
+          </button>
+          {resumoHref && (
+            <a role="menuitem" href={resumoHref} download onClick={() => setOpen(false)}>
+              <Icon name="sheet" size={16} />
+              <span>
+                <b>Planilha resumida por observação</b>
+                <small>Uma linha por observação única, sem repetições, com a classificação validada</small>
+              </span>
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Dashboard({ analysis, day }: { analysis: Analysis; day?: string }) {
   const [draft, setDraft] = useState<Query>({ ...emptyQuery, ids: analysis.id, from: day || "", to: day || "" });
   const [query, setQuery] = useState(draft);
@@ -386,9 +454,9 @@ export function Dashboard({ analysis, day }: { analysis: Analysis; day?: string 
   const [view, setView] = useState<JkView>("machines");
   const result = useData<Analytics>(`/analytics?${queryString(query)}`);
   const filters = useData<Filters>(`/filters?ids=${analysis.id}`);
-  const applyMaintenance = useCallback((failure: string) => {
-    setDraft((d) => ({ ...d, failure }));
-    setQuery((q) => ({ ...q, failure }));
+  const applyMaintenance = useCallback((failure: string, unit: string) => {
+    setDraft((d) => ({ ...d, failure, unit: d.unit || unit }));
+    setQuery((q) => ({ ...q, failure, unit: q.unit || unit }));
   }, []);
   useMaintenanceDefault(filters.data, applyMaintenance);
   const period = periodTitle(query.from, query.to, analysis.days);
@@ -426,10 +494,11 @@ export function Dashboard({ analysis, day }: { analysis: Analysis; day?: string 
               <Icon name="pencil" size={16} />
               Montar dashboard
             </button>
-            <button className="btn excel" onClick={() => downloadExcel(query)}>
-              <Icon name="sheet" size={16} />
-              Exportar Excel
-            </button>
+            <ExportMenu
+              onSummary={() => downloadExcel(query)}
+              resumoHref={analysis.mode === "ml" ? "" : apiUrl(`/api/workspace/analyses/${analysis.id}/resumo.xlsx`)}
+              fullHref={analysis.mode === "ml" ? "" : apiUrl(`/api/workspace/analyses/${analysis.id}/completa`)}
+            />
           </div>
         }
       />
@@ -638,7 +707,7 @@ export function Compare({ analyses }: { analyses: Analysis[] }) {
       })}`;
   const result = useData<Comparison>(path || "/compare?from=&to=");
   const options = useData<Filters>("/filters");
-  const applyMaintenance = useCallback((failure: string) => setFilters((f) => ({ ...f, failure })), []);
+  const applyMaintenance = useCallback((failure: string, unit: string) => setFilters((f) => ({ ...f, failure, unit: f.unit || unit })), []);
   useMaintenanceDefault(options.data, applyMaintenance);
   const data = path ? result.data : undefined;
   const counts = useMemo(() => {

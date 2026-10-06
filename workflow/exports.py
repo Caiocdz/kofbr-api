@@ -9,7 +9,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.ticker import FuncFormatter
 
-COLORS = {'Crítico-crônico': '#e0101f', 'Crítico': '#e89a1c', 'Crônico': '#3a67c4', 'Conforto': '#1f8a63'}
+COLORS = {'Crítico-crônico': '#C8102E', 'Crítico': '#e89a1c', 'Crônico': '#3a67c4', 'Conforto': '#1f8a63'}
 _LOCK = threading.Lock()
 
 
@@ -39,28 +39,28 @@ def render_chart(data, kind, fmt, context):
         machines = data['machines']
         ax.spines[['top', 'right']].set_visible(False)
         if kind == 'pareto':
-            fig.suptitle(f'PARETO DE FALHAS ({period})\n{scope}', fontsize=13, fontweight='bold', color='#b80d19')
+            fig.suptitle(f'PARETO DE FALHAS ({period})\n{scope}', fontsize=13, fontweight='bold', color='#A00D25')
             width = max(13, min(36, len(machines) * 0.75))
             fig.set_size_inches(width, 7.5)
             xs = range(len(machines))
-            bars = ax.bar(xs, [m['minutes'] for m in machines], color='#e0101f', width=0.62)
+            bars = ax.bar(xs, [m['minutes'] for m in machines], color='#C8102E', width=0.62)
             for x, m, bar in zip(xs, machines, bars):
                 ax.annotate(f"Tempo: {m['minutes']:.1f}".replace('.', ','), (x, bar.get_height()), xytext=(0, 4),
                             textcoords='offset points', ha='center', fontsize=7,
                             bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='#cccccc'))
                 ax.annotate(f"Falhas: {m['count']}", (x, 0), xytext=(0, 6), textcoords='offset points', ha='center',
                             fontsize=7, color='white', fontweight='bold',
-                            bbox=dict(boxstyle='round,pad=0.2', fc='#141313', ec='none'))
+                            bbox=dict(boxstyle='round,pad=0.2', fc='#1D1D1F', ec='none'))
             ax.set_xticks(list(xs), [m.get('short') or m['name'] for m in machines], rotation=35, ha='right', fontsize=8)
             ax.set_ylabel('Tempo de parada (min)')
             ax.set_xlabel('Linha / equipamento')
             second = ax.twinx()
-            second.plot(list(xs), [m['cumulative'] for m in machines], color='#141313', marker='o', markersize=4)
+            second.plot(list(xs), [m['cumulative'] for m in machines], color='#1D1D1F', marker='o', markersize=4)
             for x, m in zip(xs, machines):
                 second.annotate(f"{m['cumulative']:.1f}%".replace('.', ','), (x, m['cumulative']), xytext=(0, 7),
                                 textcoords='offset points', ha='center', fontsize=7,
                                 bbox=dict(boxstyle='round,pad=0.15', fc='white', ec='#cccccc'))
-            second.axhline(80, color='#e0101f', linestyle='--', linewidth=1, alpha=0.6)
+            second.axhline(80, color='#C8102E', linestyle='--', linewidth=1, alpha=0.6)
             second.set_ylim(0, 112)
             second.set_ylabel('% acumulado')
             second.spines[['top']].set_visible(False)
@@ -85,17 +85,17 @@ def render_chart(data, kind, fmt, context):
             ax.set_xlim(min(counts) * 0.5, max(counts) * 2.2)
             ax.set_ylim(min(mttrs) * 0.5, max(mttrs) * 2.2)
             for text, x, y, ha, va, color in (('CRÍTICO', 0.01, 0.99, 'left', 'top', '#c27a12'),
-                                              ('CRÍTICO-CRÔNICO', 0.99, 0.99, 'right', 'top', '#b80d19'),
+                                              ('CRÍTICO-CRÔNICO', 0.99, 0.99, 'right', 'top', '#A00D25'),
                                               ('CONFORTO', 0.01, 0.01, 'left', 'bottom', '#1f8a63'),
                                               ('CRÔNICO', 0.99, 0.01, 'right', 'bottom', '#3a67c4')):
                 ax.text(x, y, text, transform=ax.transAxes, ha=ha, va=va, fontsize=9, fontweight='bold', color=color)
             ax.annotate(f'{q:g}'.replace('.', ','), (q, 1), xycoords=('data', 'axes fraction'), ha='center', va='bottom',
-                        fontsize=8, color='#e0101f', bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='#e0101f'))
+                        fontsize=8, color='#C8102E', bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='#C8102E'))
             ax.annotate(f'{t:.1f}'.replace('.', ','), (1, t), xycoords=('axes fraction', 'data'), ha='left', va='center',
-                        fontsize=8, color='#e0101f', bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='#e0101f'))
+                        fontsize=8, color='#C8102E', bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='#C8102E'))
             legend = [f"{i}. {m.get('short') or m['name']}" for i, m in enumerate(machines[:40], 1)]
             fig.text(1.0, 0.5, '\n'.join(legend), fontsize=6.5, va='center', ha='left', family='monospace')
-        fig.text(0.01, 0.001, 'Fonte: apontamentos validados. Cortes do crítico-crônico: medianas do conjunto filtrado.',
+        fig.text(0.01, 0.001, 'Fonte: apontamentos validados. Cortes do crítico-crônico: Q médio e MTTR do conjunto filtrado (tempo total ÷ falhas).',
                  fontsize=8, color='#657084')
         result = io.BytesIO()
         fig.savefig(result, format=fmt, dpi=160, bbox_inches='tight')

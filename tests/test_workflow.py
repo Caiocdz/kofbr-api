@@ -25,6 +25,8 @@ def spreadsheet(rows, headers=HEADERS):
 def client(tmp_path, monkeypatch):
     from workflow import learning
     monkeypatch.setenv('KOFBR_DATA_DIR', str(tmp_path))
+    # Isola dos dados reais: a pasta de planilhas de treino do pacote não entra nos testes.
+    monkeypatch.setenv('KOFBR_ML_TRAIN_DIR', str(tmp_path / 'sem-pasta-de-treino'))
     learning.reset()
     # Nos testes o treino é chamado explicitamente (sem threads em segundo plano).
     monkeypatch.setattr(learning, 'retrain_in_background', lambda build: None)
@@ -84,10 +86,13 @@ def test_full_board_persistence_validation_hold_move_and_source(client):
     assert board['ready']
     stale = action(client, {**board, 'revision': 1}, 'hold', card_id=pump['id'])
     assert stale.status_code == 409
-    # O sino torna o card pendente e bloqueia o dashboard inclusive pela API.
+    # O sino não trava: dá para finalizar com o item lá; ele fica fora dos gráficos até ser devolvido.
     board = action(client, board, 'hold', card_id=pump['id']).json
-    assert board['held_count'] == 1 and not board['ready']
-    assert client.post(f'/api/workspace/analyses/{analysis_id}/finish').status_code == 409
+    assert board['held_count'] == 1 and board['ready']
+    assert client.post(f'/api/workspace/analyses/{analysis_id}/finish').status_code == 200
+    data = client.get(f'/api/workspace/analytics?ids={analysis_id}&count=lines').json
+    assert data['metrics']['lines'] == 1
+    board = client.get(f'/api/workspace/analyses/{analysis_id}').json  # finalizar muda a revisão
     board = action(client, board, 'move', card_id=pump['id'], column_id=motor['id']).json
     assert board['held_count'] == 0 and board['ready']
     # Não é possível excluir coluna ocupada.
@@ -184,9 +189,10 @@ def test_validate_all_requires_human_confirmation(client):
     refused = action(client, board, 'validate_all')
     assert refused.status_code == 400 and 'CONFIRMAR' in refused.json['erro']
     held = action(client, board, 'hold', card_id=board['cards'][0]['id']).json
-    blocked = action(client, held, 'validate_all', confirm='CONFIRMAR')
-    assert blocked.status_code == 400
-    moved = action(client, held, 'move', card_id=held['cards'][0]['id'], column_id=held['columns'][0]['id']).json
+    # Confirmar todos valida o que está fora do sino; o item do sino continua lá.
+    partial = action(client, held, 'validate_all', confirm='CONFIRMAR').json
+    assert partial['ready'] and partial['held_count'] == 1
+    moved = action(client, partial, 'move', card_id=held['cards'][0]['id'], column_id=held['columns'][0]['id']).json
     done = action(client, moved, 'validate_all', confirm='confirmar').json
     assert done['ready'] and all(c['validated'] for c in done['columns'])
 
@@ -197,14 +203,16 @@ def test_category_filter_and_excel_summary(client):
     rows += [['U1', '30/09/2026', 'L1', 'Esteira', 'Mecânica', 'Correia', 90]]
     board = validate_all(client, upload(client, rows).json)
     full = client.get(f'/api/workspace/analytics?ids={board["id"]}').json
-    # Medianas: 1 ocorrência e 50 min; valores iguais ao corte ficam no lado alto.
-    assert full['categories'] == {'Crítico-crônico': 2, 'Crítico': 0, 'Crônico': 1, 'Conforto': 0}
+    # Cortes padrão: Q = 5 falhas / 3 máquinas = 1,67 · MTTR = 245 min / 5 falhas = 49 min.
+    # Bomba (Q3, 50 min) crítico-crônico · Esteira (Q1, 90 min) crítico · Motor (Q1, 5 min) conforto.
+    assert round(full['q_threshold'], 2) == 1.67 and full['mttr_threshold'] == 49
+    assert full['categories'] == {'Crítico-crônico': 1, 'Crítico': 1, 'Crônico': 0, 'Conforto': 1}
     assert len(full['rows']) == 3
     only = client.get(f'/api/workspace/analytics?ids={board["id"]}&category=Crítico-crônico').json
-    assert {m['name'] for m in only['machines']} == {'Bomba', 'Esteira'}
-    assert only['metrics']['count'] == 4 and only['q_threshold'] == full['q_threshold']
-    comfort = client.get(f'/api/workspace/analytics?ids={board["id"]}&category=Crônico').json
-    assert [m['name'] for m in comfort['machines']] == ['Motor'] and comfort['machines'][0]['category'] == 'Crônico'
+    assert {m['name'] for m in only['machines']} == {'Bomba'}
+    assert only['metrics']['count'] == 3 and only['q_threshold'] == full['q_threshold']
+    comfort = client.get(f'/api/workspace/analytics?ids={board["id"]}&category=Conforto').json
+    assert [m['name'] for m in comfort['machines']] == ['Motor'] and comfort['machines'][0]['category'] == 'Conforto'
     assert client.get(f'/api/workspace/analytics?ids={board["id"]}&category=Inventada').status_code == 400
     xlsx = client.get(f'/api/workspace/export/xlsx?ids={board["id"]}&from=2026-09-30&to=2026-09-30')
     assert xlsx.status_code == 200
@@ -538,3 +546,258 @@ def test_pipeline_accept_high_needs_confirmation(client, ml):
     if high['total']:
         result = client.post(url, json={'confirm': True}).json
         assert result['progress']['validados'] == high['total']
+
+
+def test_reorder_boxes_and_move_with_position(client):
+    rows = [['U1', '30/09/2026', 'L1', 'Enchedora', 'Mecânica', 'Rolamento quebrado', 5],
+            ['U1', '30/09/2026', 'L1', 'Rotuladora', 'Elétrica', 'Sensor com defeito', 3],
+            ['U1', '30/09/2026', 'L1', 'Paletizador', 'Mecânica', 'Correia rompida', 4]]
+    board = upload(client, rows).json
+    ids = [c['id'] for c in board['cards']]
+    revision, events = board['revision'], len(board['events'])
+    # Só a ordem: não muda classe, validação nem o histórico de alterações.
+    result = action(client, board, 'reorder', layout={'key': 'maquina:x', 'ids': list(reversed(ids))})
+    assert result.status_code == 200, result.json
+    board = result.json
+    assert board['layout']['maquina:x'] == list(reversed(ids))
+    assert board['revision'] == revision + 1 and len(board['events']) == events
+    assert not any(c['validated'] for c in board['cards'])
+    # Mudar de falha já posicionando a caixa em cima de outra.
+    card = board['cards'][0]
+    result = action(client, board, 'set_class', card_id=card['id'], failure_class='FALHA DE TESTE',
+                    layout={'key': 'falha:FALHA DE TESTE', 'ids': [card['column_id']]})
+    board = result.json
+    assert next(c for c in board['cards'] if c['id'] == card['id'])['class'] == 'FALHA DE TESTE'
+    assert board['layout']['falha:FALHA DE TESTE'] == [card['column_id']]
+    assert action(client, board, 'reorder', layout={'key': 'outra', 'ids': []}).status_code == 400
+
+
+def test_learning_history_tracks_accuracy(tmp_path, monkeypatch):
+    from workflow import learning
+    monkeypatch.setenv('KOFBR_DATA_DIR', str(tmp_path))
+    learning.reset()
+    rows = [(f'rolamento quebrado {i}', 'Enchedora', 'FALHA DE ROLAMENTO', 1) for i in range(40)]
+    rows += [(f'sensor sem sinal {i}', 'Rotuladora', 'FALHA DE SENSOR', 1) for i in range(40)]
+    first = learning.train(rows)
+    assert first['accuracy'] is not None
+    learning.train(rows, force=True)  # mesmos exemplos = mesmo ponto
+    assert len(learning.history()) == 1
+    learning.train(rows + [('correia rompida', 'Paletizador', 'FALHA DE CORREIA', 3)])
+    info = learning.info()
+    assert len(info['history']) == 2 and info['measure_min'] == 60
+    learning.reset()
+    assert learning.history() == []
+
+
+def test_finish_learns_and_next_sheet_improves(client):
+    vague = ['MAQUINA PAROU DE REPENTE NO TURNO', 'EQUIPAMENTO PAROU SOZINHO', 'PAROU DE REPENTE NO TURNO B']
+    sheet1 = [['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', t, 10] for t in vague]
+    sheet1 += [['U1', '13/09/2026', 'L1', 'Paletizador', 'P.EQ.LINHA', 'FALHA NO SENSOR DE SAIDA', 5]]
+    board = upload(client, sheet1, 'dia13.xlsx').json
+    assert all(c.get('suggested') for c in store.get(board['id'])['cards'])
+    # O analista corrige os relatos vagos e finaliza.
+    for card in [c for c in board['cards'] if c['class'] == 'SEM MODO DE FALHA IDENTIFICADO']:
+        board = action(client, board, 'set_class', card_id=card['id'], failure_class='FALHA DE INVERSOR').json
+    board = validate_all(client, board)
+    assert not store.get(board['id']).get('finished_at')
+    done = client.post(f"/api/workspace/analyses/{board['id']}/finish").json
+    report = done['learning']
+    assert report['hit_rate'] < 50 and report['corrections'] >= 1 and report['previous_hit_rate'] is None
+    assert store.get(board['id'])['finished_at']
+    # Próxima planilha com os mesmos relatos: já chega classificada pelo que foi aprendido.
+    sheet2 = [['U1', '14/09/2026', 'L2', 'Enchedora', 'P.EQ.LINHA', t, 7] for t in vague]
+    board2 = upload(client, sheet2, 'dia14.xlsx').json
+    assert {c['class'] for c in board2['cards']} == {'FALHA DE INVERSOR'}
+    board2 = validate_all(client, board2)
+    report2 = client.post(f"/api/workspace/analyses/{board2['id']}/finish").json['learning']
+    assert report2['hit_rate'] == 100 and report2['previous_hit_rate'] == report['hit_rate']
+    assert report2['from_past'] == 100
+    sheets = client.get(f"/api/workspace/analyses/{board2['id']}").json['automation']['learning']['sheets']
+    assert [s['id'] for s in sheets] == [board['id'], board2['id']]
+    # Finalizar de novo não duplica o ponto da planilha.
+    client.post(f"/api/workspace/analyses/{board2['id']}/finish")
+    assert len(client.get(f"/api/workspace/analyses/{board2['id']}").json['automation']['learning']['sheets']) == 2
+
+
+def test_merge_cards_undo_redo(client):
+    rows = [['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'ROLAMENTO QUEBRADO', 10],
+            ['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'SENSOR SEM SINAL', 5],
+            ['U1', '13/09/2026', 'L1', 'Rotuladora', 'P.EQ.LINHA', 'MOTOR QUEIMADO', 7]]
+    board = upload(client, rows).json
+    assert board['undo'] is None and board['redo'] is None
+    by = {c['sample']: c for c in board['cards']}
+    rol, sen, mot = by['ROLAMENTO QUEBRADO'], by['SENSOR SEM SINAL'], by['MOTOR QUEIMADO']
+    # Contextos diferentes (outra máquina) nunca se misturam.
+    bad = action(client, board, 'merge_cards', card_id=mot['id'], target_id=rol['id'])
+    assert bad.status_code == 400 and 'mesma máquina' in bad.json['erro']
+    board = action(client, board, 'merge_cards', card_id=sen['id'], target_id=rol['id']).json
+    merged = next(c for c in board['cards'] if c['id'] == rol['id'])
+    assert len(board['cards']) == 2 and merged['count'] == 2 and merged['class'] == 'FALHA DE ROLAMENTO'
+    assert board['undo']['action'] == 'merge_cards' and board['events'][-1]['value'].upper() == 'SENSOR SEM SINAL'
+    # Ctrl+Z desfaz, Ctrl+Y refaz.
+    board = action(client, board, 'undo').json
+    assert len(board['cards']) == 3 and board['redo']['action'] == 'merge_cards' and board['undo'] is None
+    board = action(client, board, 'redo').json
+    assert len(board['cards']) == 2 and board['redo'] is None
+    # Desfazer uma troca de classe também tira o relato da memória de correções.
+    board = action(client, board, 'set_class', card_id=mot['id'], failure_class='FALHA DE BOBINA').json
+    assert service.memory().get('MOTOR QUEIMADO', {}).get('label') == 'FALHA DE BOBINA'
+    board = action(client, board, 'undo').json
+    assert 'MOTOR QUEIMADO' not in service.memory()
+    assert next(c for c in board['cards'] if c['id'] == mot['id'])['class'] == 'FALHA DE MOTOR'
+    assert action(client, board, 'redo').status_code == 200
+
+
+def test_resumo_from_validated_analysis(client):
+    import openpyxl as xl
+    rows = [['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'FALHA NO SENSOR DE SAIDA 30008224349', 10],
+            ['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'FALHA NO SENSOR DE SAIDA 30008224350', 5],
+            ['U1', '13/09/2026', 'L2', 'Rotuladora', 'P.EQ.LINHA', 'ROLAMENTO QUEBRADO', 7]]
+    board = validate_all(client, upload(client, rows).json)
+    out = client.get(f"/api/workspace/analyses/{board['id']}/resumo.xlsx")
+    assert out.status_code == 200
+    sheet = xl.load_workbook(io.BytesIO(out.data)).worksheets[0]
+    head = [c.value for c in sheet[1]]
+    body = [dict(zip(head, [c.value for c in r])) for r in sheet.iter_rows(min_row=2)]
+    assert len(body) == 2
+    sensor = next(r for r in body if r['Classificação'] == 'FALHA DE SENSOR')
+    assert sensor['Ocorrências'] == 2 and sensor['Minutos de parada'] == 15
+
+
+def _sap_sheet():
+    import openpyxl as xl
+    from openpyxl.styles import PatternFill
+    head = ['Centro', 'Data Inicio Real', 'Linha', 'Tipo de Parada', 'Ordem', 'Turno', 'Intervalo', 'chave do parada',
+            'Observações', 'Total minutos', 'Minutos de paradas']
+    wb = xl.Workbook()
+    ws = wb.active
+    ws.title = 'Base SAP'
+    ws.append(head)
+    ws['I1'].fill = PatternFill('solid', fgColor='C00000')
+    texts = ['FALHA NO SENSOR DE SAIDA DE PALETES ( 30008224349 )', 'ROLAMENTO QUEBRADO', 'FALHA NO SENSOR DE SAIDA DE PALETES ( 30008224350 )',
+             'TRAVOU NA SAIDA', '']
+    for i, t in enumerate(texts, 2):
+        ws.append(['BR01', '13/09/2026', 'LINHA001', 'P.EQ.LINHA', 3000 + i, 1, '08:00', 'ENCHEDORA BRH LI01', t, f'=K{i}*1', 10 * i])
+    ws.auto_filter.ref = 'A1:K6'
+    data = io.BytesIO()
+    wb.save(data)
+    return data.getvalue(), head, texts
+
+
+def test_full_sheet_from_validated_analysis_keeps_everything_and_adds_classification(client):
+    import openpyxl as xl
+    data, head, texts = _sap_sheet()
+    board = client.post('/api/workspace/import', data={'file': (io.BytesIO(data), 'sap.xlsx')}).json
+    board = validate_all(client, board)
+    out = client.get(f"/api/workspace/analyses/{board['id']}/completa")
+    assert out.status_code == 200 and 'com classifica' in out.headers['Content-Disposition']
+    ws = xl.load_workbook(io.BytesIO(out.data)).worksheets[0]
+    assert ws.title == 'Base SAP'
+    # Todas as colunas originais no mesmo lugar (fórmulas intactas) + Classificação no fim.
+    assert [c.value for c in ws[1]] == head + ['Classificação']
+    assert ws['J2'].value == '=K2*1' and ws['I1'].fill.fgColor.rgb.endswith('C00000')
+    assert ws.max_row == 1 + len(texts) and ws.auto_filter.ref.startswith('A1:L')
+    got = {ws.cell(r, 9).value or '': ws.cell(r, 12).value for r in range(2, ws.max_row + 1)}
+    assert got[texts[0]] == got[texts[2]] == 'FALHA DE SENSOR'
+    assert got[texts[1]] == 'FALHA DE ROLAMENTO'
+    assert got[''] == 'SEM DESCRIÇÃO'
+
+
+def test_pareto_and_jackknife_match_hand_calculation(client):
+    """Conferência à mão (contagem por linhas do SAP, como no item 2.2 do descritivo).
+    M1: 4×25=100 min · M2: 1×90 · M5: 3×20=60 · M3: 10×3=30 · M4: 2×5=10 → T=290, Q=20, 5 máquinas.
+    Cortes (método padrão, igual ao exemplo do descritivo): Q = 20/5 = 4 · MTTR = 290/20 = 14,5."""
+    plan = {'M1': [25] * 4, 'M2': [90], 'M3': [3] * 10, 'M4': [5] * 2, 'M5': [20] * 3}
+    rows = []
+    for machine, minutes in plan.items():
+        for i, m in enumerate(minutes):
+            rows.append(['U1', f'{13 + i % 3}/09/2026', 'LINHA001', machine, 'P.EQ.LINHA', f'ROLAMENTO QUEBRADO {machine} {i}', m])
+    board = validate_all(client, upload(client, rows).json)
+    data = client.get(f"/api/workspace/analytics?ids={board['id']}&count=lines").json
+    assert data['q_threshold'] == 4 and data['mttr_threshold'] == 14.5
+    pareto = [(m['name'], m['minutes'], m['count'], round(m['percent'], 2), round(m['cumulative'], 2)) for m in data['machines']]
+    assert pareto == [('M1', 100, 4, 34.48, 34.48), ('M2', 90, 1, 31.03, 65.52), ('M5', 60, 3, 20.69, 86.21),
+                      ('M3', 30, 10, 10.34, 96.55), ('M4', 10, 2, 3.45, 100)]
+    cat = {m['name']: (m['mttr'], m['category']) for m in data['machines']}
+    assert cat == {'M1': (25, 'Crítico-crônico'), 'M2': (90, 'Crítico'), 'M5': (20, 'Crítico'),
+                   'M3': (3, 'Crônico'), 'M4': (5, 'Conforto')}
+    # Com a mediana (método antigo) o corte de Q seria 3 e a M5 viraria crítico-crônico por empate.
+
+
+def test_card_returned_to_original_column_gets_its_color_back(client):
+    rows = [['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'FALHA NO SENSOR DE SAIDA', 10],
+            ['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'ROLAMENTO QUEBRADO', 5]]
+    board = upload(client, rows).json
+    card = next(c for c in board['cards'] if c['class'] == 'FALHA DE SENSOR')
+    color = card['confidence']
+    board = action(client, board, 'set_class', card_id=card['id'], failure_class='FALHA DE ROLAMENTO').json
+    moved = next(c for c in board['cards'] if c['id'] == card['id'])
+    assert moved['confidence'] == 'manual' and service.memory()
+    # Devolver à coluna original (mesmo que a UI mande o nome da classe) volta ao automático e à cor de antes.
+    board = action(client, board, 'set_class', card_id=card['id'], failure_class='FALHA DE SENSOR').json
+    back = next(c for c in board['cards'] if c['id'] == card['id'])
+    assert back['class'] == 'FALHA DE SENSOR' and back['confidence'] == color and not back['failure_class']
+    assert 'FALHA NO SENSOR DE SAIDA' not in service.memory()
+    # Em lote (arrastar o bloco da máquina) também.
+    board = action(client, board, 'set_classes', items=[{'card_id': card['id'], 'failure_class': 'FALHA DE MOTOR'}]).json
+    board = action(client, board, 'set_classes', items=[{'card_id': card['id'], 'failure_class': 'FALHA DE SENSOR'}]).json
+    assert next(c for c in board['cards'] if c['id'] == card['id'])['confidence'] == color
+
+
+def test_bell_finish_with_held_and_release_later_to_the_right_day(client):
+    rows = [['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'FALHA NO SENSOR DE SAIDA', 10],
+            ['U1', '14/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'ROLAMENTO QUEBRADO', 7]]
+    board = upload(client, rows).json
+    rol = next(c for c in board['cards'] if c['class'] == 'FALHA DE ROLAMENTO')
+    board = action(client, board, 'hold', card_id=rol['id'], note='Confirmar com a manutenção').json
+    held = next(c for c in board['cards'] if c['id'] == rol['id'])
+    assert held['held'] and held['held_note'] == 'Confirmar com a manutenção' and held['held_at']
+    board = action(client, board, 'validate_all', confirm='CONFIRMAR').json
+    assert client.post(f"/api/workspace/analyses/{board['id']}/finish").status_code == 200
+    day14 = client.get(f"/api/workspace/analytics?ids={board['id']}&from=2026-09-14&to=2026-09-14&count=lines").json
+    assert day14['metrics']['lines'] == 0
+    board = client.get(f"/api/workspace/analyses/{board['id']}").json
+    # Dias depois: devolve trocando a falha e já validado → entra no dia 14, com a falha escolhida.
+    board = action(client, board, 'release', card_id=rol['id'], failure_class='FALHA DE EIXO', validate=True).json
+    back = next(c for c in board['cards'] if c['id'] == rol['id'])
+    assert not back['held'] and back['validated'] and back['class'] == 'FALHA DE EIXO' and board['ready']
+    assert 'held_at' not in back and service.memory()['ROLAMENTO QUEBRADO']['label'] == 'FALHA DE EIXO'
+    day14 = client.get(f"/api/workspace/analytics?ids={board['id']}&from=2026-09-14&to=2026-09-14&count=lines").json
+    assert day14['metrics']['lines'] == 1 and day14['failures'][0]['key'] == 'FALHA DE EIXO'
+    assert action(client, board, 'release', card_id=rol['id']).status_code == 400
+
+
+def test_mature_model_overrides_catalog_but_not_memory(monkeypatch):
+    from workflow import learning, classify as fc
+    cat = fc.default_catalog()
+    base = fc.explain('FALHA NO SENSOR DA ESTEIRA', '', cat)
+    assert base['label'] == 'FALHA DE SENSOR'
+    monkeypatch.setitem(learning._state, 'info', {'examples': 50})
+    # Modelo imaturo: só marca como "conferir", não troca a classe.
+    young = learning.refine(base, ('FALHA DE ESTEIRA', 0.95), 'FALHA NO SENSOR DA ESTEIRA')
+    assert young['label'] == 'FALHA DE SENSOR' and young['confidence'] == 'media'
+    monkeypatch.setitem(learning._state, 'info', {'examples': 500})
+    mature = learning.refine(base, ('FALHA DE ESTEIRA', 0.95), 'FALHA NO SENSOR DA ESTEIRA')
+    assert mature['label'] == 'FALHA DE ESTEIRA' and mature['source'] == 'aprendizado' and mature['suggestion'] == 'FALHA DE SENSOR'
+    assert learning.refine(base, ('FALHA DE ESTEIRA', 0.5), 'x')['label'] == 'FALHA DE SENSOR'
+    mem = {'label': 'FALHA DE MOTOR', 'confidence': 'alta', 'source': 'memoria', 'detail': '', 'reason': ''}
+    assert learning.refine(mem, ('FALHA DE ESTEIRA', 0.99), 'x')['label'] == 'FALHA DE MOTOR'
+
+
+def test_training_folder_feeds_board_model(tmp_path, monkeypatch, client):
+    import openpyxl as xl
+    from workflow import service
+    folder = tmp_path / 'treino'
+    folder.mkdir()
+    wb = xl.Workbook()
+    wb.active.append(['Observações', 'Classificação'])
+    for i in range(30):
+        wb.active.append([f'TROCA DA MOLA DO BLOCO {i}', 'Mola danificada'])
+        wb.active.append([f'SENSOR DE PORTA SEM SINAL {i}', 'FALHA DE SENSOR'])
+    wb.active.append(['APONTAMENTO QUALQUER', 'Sem detalhes'])
+    wb.save(folder / 'jundiai.xlsx')
+    monkeypatch.setenv('KOFBR_ML_TRAIN_DIR', str(folder))
+    rows = service.folder_examples()
+    labels = {cls for _, cls in rows}
+    assert len(rows) == 60 and labels == {'FALHA DE MOLA', 'FALHA DE SENSOR'}
+    assert len(service.training_rows()) >= 60

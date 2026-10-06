@@ -24,20 +24,14 @@ import Importer from "@/components/importer";
 import Kanban from "@/components/kanban";
 import MlFill from "@/components/ml-fill";
 import Pipeline from "@/components/pipeline";
+import Desempenho from "@/components/desempenho";
+import { GargaloMark, Ribbon, Splash, useFizzOnActions } from "@/components/brand";
+import { ThemeToggle } from "@/components/theme";
 import { Dashboard, Compare } from "@/components/analysis";
 import "./home.css";
-
-/** Tampinha de garrafa (coroa com 21 dentes), gerada por código. */
-const CAP_PATH = (() => {
-  const teeth = 21,
-    pts: string[] = [];
-  for (let i = 0; i < teeth * 2; i++) {
-    const a = (Math.PI * i) / teeth - Math.PI / 2,
-      r = i % 2 ? 20.2 : 23.4;
-    pts.push(`${(24 + r * Math.cos(a)).toFixed(2)},${(24 + r * Math.sin(a)).toFixed(2)}`);
-  }
-  return `M${pts.join("L")}Z`;
-})();
+import "./kanban.css";
+import "./desempenho.css";
+import "./ultimate.css";
 
 const weekday = (date: string) =>
   new Date(`${date}T12:00:00`)
@@ -93,7 +87,7 @@ function Folder({ day, index }: { day: Day; index: number }) {
                     width={slot * 0.64}
                     height={h}
                     rx="2"
-                    fill={i < 2 ? "#e0101f" : "#f3b9bf"}
+                    fill={i < 2 ? "#c8102e" : "#f6b8c3"}
                   />
                 );
               })}
@@ -134,6 +128,7 @@ function Home({ analyses }: { analyses: Analysis[] }) {
   const [today] = useState(localToday);
   const ready = analyses.filter((a) => a.ready),
     pending = analyses.filter((a) => !a.ready);
+  const belled = analyses.filter((a) => a.ready && a.mode !== "ml" && a.held_count > 0);
   const daily = useMemo(
     () =>
       ready
@@ -269,6 +264,36 @@ function Home({ analyses }: { analyses: Analysis[] }) {
           </div>
         </section>
       )}
+      {belled.length > 0 && (
+        <section className="pending-section">
+          <div className="section-heading">
+            <div>
+              <h2>
+                Itens no sino <span className="count-pill">{belled.reduce((n, a) => n + a.held_count, 0)}</span>
+              </h2>
+              <p>Planilhas já liberadas com itens separados para decidir depois. Ao devolver, eles entram no dia certo dos gráficos.</p>
+            </div>
+          </div>
+          <div className="pending-list">
+            {belled.map((a) => (
+              <button className="pending-item" key={a.id} onClick={() => navigate({ view: "quadro", id: a.id })}>
+                <span className="pending-ring bell-ring">
+                  <Icon name="bell" size={18} />
+                </span>
+                <span className="pending-name">
+                  <b>{a.filename}</b>
+                  <small>
+                    {a.held_count} {a.held_count === 1 ? "item" : "itens"} no sino · {a.days.length > 1 ? `${dateLabel(a.days[0])} a ${dateLabel(a.days[a.days.length - 1])}` : a.days[0] ? dateLabel(a.days[0]) : ""}
+                  </small>
+                </span>
+                <span className="pending-action">
+                  Abrir sino <Icon name="arrow" size={16} />
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
       <section className="analyses-section">
         <div className="section-heading">
           <div>
@@ -388,6 +413,7 @@ export default function Page() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [mobile, setMobile] = useState(false);
+  useFizzOnActions();
   const load = useCallback(() => {
     void api<Analysis[]>("/analyses")
       .then((a) => {
@@ -446,9 +472,11 @@ export default function Page() {
     comparar: "Comparar períodos",
     gerar: "Gerar planilha de apontamentos",
     fluxo: "Nova análise",
+    desempenho: "Desempenho da ML",
   }[route.view];
   return (
     <div className="app-shell">
+      <Splash />
       {mobile && (
         <button
           className="sidebar-scrim"
@@ -460,105 +488,51 @@ export default function Page() {
         className={`sidebar ${mobile ? "open" : ""}`}
         aria-label="Navegação principal"
       >
-        <span className="fizz" aria-hidden="true">
-          {Array.from({ length: 14 }, (_, i) => (
-            <i key={i} />
-          ))}
-        </span>
-        <a href="#inicio" className="brand" onClick={() => setMobile(false)}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/kofbr-logo.png"
-            alt="Troféu KOF BR"
-            className="brand-logo"
-            width={49}
-            height={90}
-          />
+        <a href="#inicio" className="brand" onClick={() => setMobile(false)} aria-label="Gargalo, início">
+          <span className="brand-mark">
+            <GargaloMark size={58} />
+          </span>
           <span className="brand-text">
             <span className="brand-word">gargalo</span>
-            <small>RADAR DE CONFIABILIDADE</small>
+            <small>Radar de Confiabilidade</small>
           </span>
         </a>
-        <p className="brand-slogan">
-          <span>KOF<em>BR</em></span>
-          Organizar. Validar. Entender.
-        </p>
         <button
           className={`import-nav ${route.view === "importar" ? "active" : ""}`}
           onClick={() => navigate({ view: "importar" })}
         >
-          <span className="nav-plus cap" aria-hidden="true">
-            <svg viewBox="0 0 48 48" className="cap-shape">
-              <path d={CAP_PATH} />
-              <circle cx="24" cy="24" r="15.5" />
-            </svg>
-            <Icon name="plus" size={20} />
+          <span className="nav-plus" aria-hidden="true">
+            <Icon name="plus" size={18} />
           </span>
-          <span>
-            Importar
-            <small>planilha .xlsx / .csv</small>
-          </span>
+          Importar planilha
         </button>
-        <div className="nav-section-label">
-          <i aria-hidden="true" />
-          ÁREA DE TRABALHO
-        </div>
-        <nav>
-          <button
-            className={`nav-link ${route.view === "fluxo" ? "active" : ""}`}
-            onClick={() => navigate({ view: "fluxo" })}
-            aria-current={route.view === "fluxo" ? "page" : undefined}
-          >
-            <Icon name="layers" size={19} />
-            <span>Nova análise</span>
-          </button>
-          <button
-            className={`nav-link ${route.view === "inicio" ? "active" : ""}`}
-            onClick={() => navigate({ view: "inicio" })}
-            aria-current={route.view === "inicio" ? "page" : undefined}
-          >
-            <Icon name="home" size={19} />
-            <span>Início</span>
-          </button>
-          <button
-            className={`nav-link ${route.view === "comparar" ? "active" : ""}`}
-            onClick={() => navigate({ view: "comparar" })}
-            aria-current={route.view === "comparar" ? "page" : undefined}
-          >
-            <Icon name="compare" size={19} />
-            <span>Comparar</span>
-          </button>
-          <button
-            className={`nav-link ${route.view === "gerar" ? "active" : ""}`}
-            onClick={() => navigate({ view: "gerar" })}
-            aria-current={route.view === "gerar" ? "page" : undefined}
-          >
-            <Icon name="sheet" size={19} />
-            <span>Gerar Planilha de Apontamentos</span>
-          </button>
+        <nav aria-label="Seções">
+          {(
+            [
+              ["inicio", "home", "Início"],
+              ["comparar", "compare", "Comparar períodos"],
+              ["desempenho", "brain", "Desempenho da ML"],
+            ] as const
+          ).map(([view, icon, label]) => {
+            const on = route.view === view || (view === "inicio" && (route.view === "quadro" || route.view === "analise"));
+            return (
+              <button
+                key={view}
+                className={`nav-link ${on ? "active" : ""}`}
+                onClick={() => navigate({ view })}
+                aria-current={on ? "page" : undefined}
+              >
+                <Icon name={icon} size={19} />
+                <span>{label}</span>
+              </button>
+            );
+          })}
         </nav>
         <div className="sidebar-bottom">
-          <div className="sidebar-can">
-            <span className="can-drops" aria-hidden="true" />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/kofbr-logo.png" alt="" className="can-mark" width={60} height={110} />
-            <small>COCA-COLA FEMSA BRASIL</small>
-            <b>Clareza em cada decisão.</b>
-            <p>Dados organizados, validação humana e análises confiáveis para a manutenção.</p>
-            <span className="can-tag">
-              <Icon name="shield" size={13} />
-              Operações &amp; Confiabilidade
-            </span>
-          </div>
+          <Ribbon className="sidebar-ribbon" />
           <div className="sidebar-footer">
-            <span className="brand-unit">
-              KOF<span>BR</span>
-            </span>
-            <span>
-              COCA-COLA FEMSA
-              <br />
-              BRASIL
-            </span>
+            <b>Coca-Cola FEMSA Brasil</b>
+            <span>Manutenção e Confiabilidade</span>
           </div>
         </div>
       </aside>
@@ -573,20 +547,14 @@ export default function Page() {
             >
               <Icon name="menu" />
             </button>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/kofbr-logo.png"
-              alt=""
-              className="topbar-logo"
-              width={20}
-              height={36}
-            />
+            <GargaloMark size={30} className="topbar-logo" />
             <div className="topbar-title">
               <span className="breadcrumb-root">Área de trabalho</span>
               <b>{title}</b>
             </div>
           </div>
           <div className="topbar-right">
+            <ThemeToggle />
             <span className={`connection-status ${error ? "offline" : ""}`}>
               <i />
               {error
@@ -604,13 +572,14 @@ export default function Page() {
           className={`page-content ${route.view === "quadro" ? "board-content" : ""}`}
         >
           <ErrorNotice message={error} retry={load} />
-          {!loaded && route.view !== "importar" && route.view !== "gerar" && route.view !== "fluxo" ? (
+          {!loaded && route.view !== "importar" && route.view !== "gerar" && route.view !== "fluxo" && route.view !== "desempenho" ? (
             <Loading />
           ) : (
             <>
               {route.view === "inicio" && <Home analyses={analyses} />}
               {route.view === "importar" && <Importer onUpdate={load} />}
               {route.view === "gerar" && <MlFill />}
+              {route.view === "desempenho" && <Desempenho />}
               {route.view === "fluxo" && (
                 <Pipeline key={route.id || "novo"} id={route.id} step={route.step} analyses={analyses} onUpdate={load} />
               )}

@@ -1,4 +1,5 @@
 "use client";
+import { BottleFill, CountUp } from "./brand";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type React from "react";
 import { createPortal } from "react-dom";
@@ -169,6 +170,16 @@ export function Icon({ name, size = 20 }: { name: string; size?: number }) {
     refresh: (
       <path d="M20 7v5h-5M4 17v-5h5M5 8a8 8 0 0 1 14-2l1 6M4 12l1 6a8 8 0 0 0 14-2" />
     ),
+    moon: <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" />,
+    sun: (
+      <>
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+      </>
+    ),
+    undo: <path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />,
+    redo: <path d="m15 14 5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13" />,
+    merge: <path d="M8 6h8M8 12h8M8 18h8M4 6v12" />,
   };
   return (
     <svg
@@ -287,8 +298,8 @@ export function ErrorNotice({
 export function Loading({ label = "Carregando dados…" }: { label?: string }) {
   return (
     <div className="loading-state" role="status">
-      <span className="spinner" />
-      {label}
+      <BottleFill size={56} />
+      <span>{label}</span>
     </div>
   );
 }
@@ -312,6 +323,19 @@ export function Empty({
     </div>
   );
 }
+const STEPS = ["Importar", "Validar", "Analisar"];
+export function Steps({ current }: { current: number }) {
+  return (
+    <ol className="steps" aria-label={`Etapa ${current} de ${STEPS.length}`}>
+      {STEPS.map((label, i) => (
+        <li key={label} className={i + 1 < current ? "done" : i + 1 === current ? "on" : ""} aria-current={i + 1 === current ? "step" : undefined}>
+          <i>{i + 1 < current ? "✓" : i + 1}</i>
+          {label}
+        </li>
+      ))}
+    </ol>
+  );
+}
 export function Heading({
   eyebrow,
   title,
@@ -323,10 +347,13 @@ export function Heading({
   text: string;
   action?: ReactNode;
 }) {
+  // "01 / IMPORTAR APONTAMENTOS" vira o trilho das etapas (importar → validar → analisar).
+  // Rótulos que só repetem o título da página não aparecem.
+  const step = /^0?(\d)\s*\//.exec(eyebrow || "");
   return (
     <div className="page-heading">
       <div>
-        <div className="eyebrow">{eyebrow}</div>
+        {step && <Steps current={Number(step[1])} />}
         <h1>{title}</h1>
         <p>{text}</p>
       </div>
@@ -360,7 +387,9 @@ export function Stat({
           <Icon name={icon} size={17} />
         </span>
       </div>
-      <strong>{value}</strong>
+      <strong>
+        <CountUp value={value} />
+      </strong>
       <small>{sub}</small>
     </article>
   );

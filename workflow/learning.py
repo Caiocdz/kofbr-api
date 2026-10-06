@@ -26,6 +26,8 @@ from pathlib import Path
 from . import classify as fc
 
 MIN_EXAMPLES = 20
+MODEL_WINS = 0.6   # certeza mínima para o modelo trocar a classe do catálogo
+MATURE = 200      # ...e só depois de aprender com pelo menos 200 relatos validados
 _lock = threading.Lock()
 _state = {'model': None, 'fingerprint': None, 'info': None, 'cache': {}, 'training': False}
 
@@ -34,6 +36,36 @@ def _path():
     base = Path(os.environ.get('KOFBR_DATA_DIR', Path(__file__).resolve().parents[1] / 'data'))
     base.mkdir(parents=True, exist_ok=True)
     return base / 'aprendizado.joblib'
+
+
+def _history_path():
+    return _path().with_name('aprendizado_historico.json')
+
+
+def history():
+    """Evolução do acerto a cada treino: [{at, accuracy, examples, classes}] (mais antigo primeiro)."""
+    try:
+        data = json.loads(_history_path().read_text(encoding='utf-8'))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _record_history(info):
+    """Guarda um ponto por versão do modelo (mesmos exemplos = mesmo ponto)."""
+    if info.get('accuracy') is None:
+        return
+    items = history()
+    point = {'at': info['trained_at'], 'accuracy': info['accuracy'], 'examples': info['examples'],
+             'classes': info['classes'], 'version': info['version']}
+    if items and items[-1].get('version') == point['version']:
+        items[-1] = point
+    else:
+        items.append(point)
+    try:
+        _history_path().write_text(json.dumps(items[-40:], ensure_ascii=False), encoding='utf-8')
+    except Exception:
+        pass
 
 
 def _text_only(doc):
@@ -53,9 +85,14 @@ def _doc(text, machine):
     return f'{fc.normalize(text)} {words}'.strip()
 
 
-def examples(documents, memory, card_class):
-    """(texto, máquina, classe, peso) a partir do que já foi validado por pessoas."""
+def examples(documents, memory, card_class, extra=None):
+    """(texto, máquina, classe, peso) a partir do que já foi validado por pessoas.
+    `extra`: (texto, classe) das planilhas classificadas pelos analistas (tela "Planilha resumida")."""
     out = {}
+    for text, label in extra or ():
+        key = fc.memory_key(text)
+        if key and label and label not in fc.UNCLASSIFIED:
+            out[(key, '+')] = (text, '', label, 2)
     for doc in documents:
         records = {r['id']: r for r in doc['records']}
         columns = {c['id']: c for c in doc['columns']}
@@ -93,7 +130,7 @@ def _build():
         TfidfVectorizer(analyzer='char_wb', ngram_range=(3, 5), min_df=1, sublinear_tf=True, preprocessor=_text_only),
     )
     # Regressão logística treinada por gradiente estocástico: mesma ideia, ~10x mais rápida.
-    return make_pipeline(features, SGDClassifier(loss='log_loss', alpha=1e-5, max_iter=60, tol=1e-4, random_state=0))
+    return make_pipeline(features, SGDClassifier(loss='log_loss', alpha=1e-5, max_iter=60, tol=1e-4, random_state=0, n_jobs=-1))
 
 
 def train(rows, force=False):
@@ -102,6 +139,11 @@ def train(rows, force=False):
     if not force and _state['fingerprint'] == fingerprint and _state['model'] is not None:
         return _state['info']
     labels = Counter(r[2] for r in rows)
+    # Classe com um único exemplo não se generaliza (o relato exato já está na memória) e cada
+    # classe custa um classificador a mais: com as planilhas das unidades são centenas delas.
+    if len(rows) >= 200:
+        rows = [r for r in rows if labels[r[2]] >= 2]
+        labels = Counter(r[2] for r in rows)
     if len(rows) < MIN_EXAMPLES or len(labels) < 2:
         with _lock:
             _state.update(model=None, fingerprint=fingerprint, cache={}, info={
@@ -133,6 +175,7 @@ def train(rows, force=False):
             'top_classes': [{'label': k, 'examples': v} for k, v in labels.most_common(8)]}
     with _lock:
         _state.update(model=model, fingerprint=fingerprint, info=info, cache={})
+    _record_history(info)
     try:
         import joblib
         joblib.dump({'model': model, 'fingerprint': fingerprint, 'info': info}, _path())
@@ -155,8 +198,9 @@ def load():
 
 def info():
     load()
-    return _state['info'] or {'ready': False, 'examples': 0, 'classes': 0, 'min_examples': MIN_EXAMPLES,
+    base = _state['info'] or {'ready': False, 'examples': 0, 'classes': 0, 'min_examples': MIN_EXAMPLES,
                               'trained_at': None, 'accuracy': None, 'version': None}
+    return base | {'history': history(), 'measure_min': 60}
 
 
 def predict_many(pairs):
@@ -191,6 +235,13 @@ def refine(base, prediction, text=''):
         if base['confidence'] == 'media' and p >= 0.7:
             return {**base, 'confidence': 'alta', 'reason': base['reason'] + f' O aprendizado confirma ({pct}).'}
         return base
+    # Modelo maduro e confiante vence o catálogo. Medido num teste cego com 1.020 relatos de Marília
+    # (padrão do descritivo): catálogo 75%, lógica antiga 78%, modelo vencendo com 60%+ de certeza 87%.
+    if p >= MODEL_WINS and (_state['info'] or {}).get('examples', 0) >= MATURE:
+        return {**base, 'label': label, 'confidence': 'alta' if p >= 0.9 else 'media', 'source': 'aprendizado',
+                'suggestion': base['label'],
+                'reason': f'O aprendizado reconheceu pelo histórico validado ({pct} de certeza); '
+                          f'o catálogo sugeria {fc.pretty(base["label"]).lower()}.'}
     if p >= 0.75:
         return {**base, 'confidence': 'media', 'suggestion': label,
                 'reason': base['reason'] + f' Pelo histórico validado, parece {fc.pretty(label).lower()} ({pct}).'}
@@ -223,7 +274,8 @@ def retrain_in_background(build_rows, delay=20.0):
 def reset():
     with _lock:
         _state.update(model=None, fingerprint=None, info=None, cache={}, training=False)
-    try:
-        _path().unlink()
-    except FileNotFoundError:
-        pass
+    for path in (_path(), _history_path()):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass

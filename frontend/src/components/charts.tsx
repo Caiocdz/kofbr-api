@@ -98,19 +98,19 @@ export function ParetoChart({ spec }: { spec: ParetoSpec }) {
         viewBox={`0 0 ${w} ${h}`}
         style={{ minWidth: w > 800 ? w : undefined }}
       >
-        <text x={left} y="14" fontSize="10" fill="#8d8784">
+        <text x={left} y="14" fontSize="10" fill="var(--muted)">
           {spec.metricLabel.toUpperCase()} ({spec.unit})
         </text>
-        <text x={right} y="14" textAnchor="end" fontSize="10" fill="#8d8784">
+        <text x={right} y="14" textAnchor="end" fontSize="10" fill="var(--muted)">
           % ACUMULADO
         </text>
         {[0, 1, 2, 3, 4].map((i) => (
           <g key={i}>
-            <line x1={left} x2={right} y1={y((max * i) / 4)} y2={y((max * i) / 4)} stroke="#efecea" />
-            <text x={left - 10} y={y((max * i) / 4) + 4} textAnchor="end" fontSize="10" fill="#8d8784">
+            <line x1={left} x2={right} y1={y((max * i) / 4)} y2={y((max * i) / 4)} stroke="var(--line)" />
+            <text x={left - 10} y={y((max * i) / 4) + 4} textAnchor="end" fontSize="10" fill="var(--muted)">
               {fmt((max * i) / 4)}
             </text>
-            <text x={right + 10} y={cy(i * 25) + 4} fontSize="10" fill="#8d8784">
+            <text x={right + 10} y={cy(i * 25) + 4} fontSize="10" fill="var(--muted)">
               {i * 25}%
             </text>
           </g>
@@ -120,12 +120,12 @@ export function ParetoChart({ spec }: { spec: ParetoSpec }) {
           x2={right}
           y1={cy(spec.cut)}
           y2={cy(spec.cut)}
-          stroke="#e0101f"
+          stroke="var(--coke)"
           strokeOpacity="0.6"
           strokeDasharray="4 5"
         />
-        <rect x={right + 4} y={cy(spec.cut) - 8} width="34" height="15" rx="4" fill="#fff" stroke="#e0101f" />
-        <text x={right + 21} y={cy(spec.cut) + 3} textAnchor="middle" fontSize="9.5" fontWeight="800" fill="#e0101f">
+        <rect x={right + 4} y={cy(spec.cut) - 8} width="34" height="15" rx="4" fill="var(--card)" stroke="var(--coke)" />
+        <text x={right + 21} y={cy(spec.cut) + 3} textAnchor="middle" fontSize="9.5" fontWeight="800" fill="var(--coke)">
           {fmt(spec.cut)}%
         </text>
         {rows.map((r, i) => {
@@ -144,35 +144,35 @@ export function ParetoChart({ spec }: { spec: ParetoSpec }) {
                 rx="5"
                 className="pareto-bar"
                 style={{ animationDelay: `${i * 40}ms` }}
-                fill={strong(i) ? "#c30d1a" : "#e0101f"}
+                fill={strong(i) ? "#a50e26" : "#c8102e"}
                 fillOpacity={strong(i) ? 1 : 0.55}
               >
                 <title>{`${r.label}${r.sub ? ` · ${r.sub}` : ""}\n${fmt(r.value, 2)} ${spec.unit}${r.count != null ? ` · ${r.count} falhas` : ""}\nAcumulado: ${fmt(cumulative[i], 1)}%`}</title>
               </rect>
               {!dense && (
                 <g>
-                  <rect x={bx + bw / 2 - 26} y={by - 19} width="52" height="15" rx="4" fill="#fff" stroke="#e5e1de" />
-                  <text x={bx + bw / 2} y={by - 8} textAnchor="middle" fontSize="9.5" fontWeight="700" fill="#141313">
+                  <rect x={bx + bw / 2 - 26} y={by - 19} width="52" height="15" rx="4" fill="var(--card)" stroke="var(--line-strong)" />
+                  <text x={bx + bw / 2} y={by - 8} textAnchor="middle" fontSize="9.5" fontWeight="700" fill="var(--ink)">
                     {fmt(r.value, 1)}
                   </text>
                 </g>
               )}
               {r.count != null && (
                 <g>
-                  <rect x={bx + bw / 2 - 18} y={bottom - 17} width="36" height="14" rx="7" fill="#141313" />
-                  <text x={bx + bw / 2} y={bottom - 7} textAnchor="middle" fontSize="9" fontWeight="700" fill="#fff">
+                  <rect x={bx + bw / 2 - 18} y={bottom - 17} width="36" height="14" rx="7" fill="var(--ink)" />
+                  <text x={bx + bw / 2} y={bottom - 7} textAnchor="middle" fontSize="9" fontWeight="700" fill="var(--card)">
                     Q {fmt(r.count)}
                   </text>
                 </g>
               )}
-              <text x={left + slot * (i + 0.5)} y={bottom + 18} textAnchor="middle" fill="#2a2828" fontSize="9.5">
+              <text x={left + slot * (i + 0.5)} y={bottom + 18} textAnchor="middle" fill="var(--ink)" fontSize="9.5">
                 {l1}
               </text>
-              <text x={left + slot * (i + 0.5)} y={bottom + 30} textAnchor="middle" fill="#2a2828" fontSize="9.5">
+              <text x={left + slot * (i + 0.5)} y={bottom + 30} textAnchor="middle" fill="var(--ink)" fontSize="9.5">
                 {l2}
               </text>
               {r.sub && (
-                <text x={left + slot * (i + 0.5)} y={bottom + 43} textAnchor="middle" fill="#a29b97" fontSize="8.5">
+                <text x={left + slot * (i + 0.5)} y={bottom + 43} textAnchor="middle" fill="var(--muted)" fontSize="8.5">
                   {r.sub.slice(0, 16)}
                 </text>
               )}
@@ -182,12 +182,12 @@ export function ParetoChart({ spec }: { spec: ParetoSpec }) {
         <polyline
           points={rows.map((_, i) => `${left + slot * (i + 0.5)},${cy(cumulative[i])}`).join(" ")}
           fill="none"
-          stroke="#141313"
+          stroke="var(--ink)"
           strokeWidth="2"
         />
         {rows.map((r, i) => (
           <g key={r.key}>
-            <circle cx={left + slot * (i + 0.5)} cy={cy(cumulative[i])} r="3.5" fill="#fff" stroke="#141313" strokeWidth="2" />
+            <circle cx={left + slot * (i + 0.5)} cy={cy(cumulative[i])} r="3.5" fill="var(--card)" stroke="var(--ink)" strokeWidth="2" />
             {!dense && (
               <text
                 x={left + slot * (i + 0.5)}
@@ -199,8 +199,8 @@ export function ParetoChart({ spec }: { spec: ParetoSpec }) {
                 textAnchor="middle"
                 fontSize="8.5"
                 fontWeight="800"
-                fill="#141313"
-                stroke="#fff"
+                fill="var(--ink)"
+                stroke="var(--card)"
                 strokeWidth="3"
                 paintOrder="stroke"
               >
@@ -209,19 +209,19 @@ export function ParetoChart({ spec }: { spec: ParetoSpec }) {
             )}
           </g>
         ))}
-        <rect x={left} y={h - 16} width="9" height="9" rx="2" fill="#c30d1a" />
-        <text x={left + 15} y={h - 8} fontSize="10.5" fill="#5e5a58">
+        <rect x={left} y={h - 16} width="9" height="9" rx="2" fill="var(--coke-deep)" />
+        <text x={left + 15} y={h - 8} fontSize="10.5" fill="var(--ink-soft)">
           {spec.metricLabel}
         </text>
-        <rect x={left + 150} y={h - 17} width="26" height="11" rx="5.5" fill="#141313" />
-        <text x={left + 163} y={h - 9} textAnchor="middle" fontSize="7.5" fontWeight="700" fill="#fff">
+        <rect x={left + 150} y={h - 17} width="26" height="11" rx="5.5" fill="var(--ink)" />
+        <text x={left + 163} y={h - 9} textAnchor="middle" fontSize="7.5" fontWeight="700" fill="var(--card)">
           Q
         </text>
-        <text x={left + 182} y={h - 8} fontSize="10.5" fill="#5e5a58">
+        <text x={left + 182} y={h - 8} fontSize="10.5" fill="var(--ink-soft)">
           Quantidade de falhas
         </text>
-        <line x1={left + 318} x2={left + 338} y1={h - 12} y2={h - 12} stroke="#141313" strokeWidth="2" />
-        <text x={left + 344} y={h - 8} fontSize="10.5" fill="#5e5a58">
+        <line x1={left + 318} x2={left + 338} y1={h - 12} y2={h - 12} stroke="var(--ink)" strokeWidth="2" />
+        <text x={left + 344} y={h - 8} fontSize="10.5" fill="var(--ink-soft)">
           % acumulado
         </text>
       </svg>
@@ -267,20 +267,20 @@ export function JackknifeChart({ spec }: { spec: JackSpec }) {
       className="data-chart"
       viewBox="0 0 640 352"
     >
-      <rect x={left} y={top} width={cutX - left} height={cutY - top} fill="#fdf6ea" />
-      <rect x={cutX} y={top} width={right - cutX} height={cutY - top} fill="#fdedef" />
-      <rect x={left} y={cutY} width={cutX - left} height={bottom - cutY} fill="#eef8f3" />
-      <rect x={cutX} y={cutY} width={right - cutX} height={bottom - cutY} fill="#eef3fc" />
+      <rect x={left} y={top} width={cutX - left} height={cutY - top} fill="var(--q-critico)" />
+      <rect x={cutX} y={top} width={right - cutX} height={cutY - top} fill="var(--q-cc)" />
+      <rect x={left} y={cutY} width={cutX - left} height={bottom - cutY} fill="var(--q-conforto)" />
+      <rect x={cutX} y={cutY} width={right - cutX} height={bottom - cutY} fill="var(--q-cronico)" />
       {ticks(minT, maxT).map((v, i) => (
         <g key={`t${i}`}>
-          <line x1={left} x2={right} y1={y(v)} y2={y(v)} stroke="#ffffff" />
-          <text x={left - 10} y={y(v) + 4} fontSize="10" fill="#8d8784" textAnchor="end">
+          <line x1={left} x2={right} y1={y(v)} y2={y(v)} stroke="var(--card)" />
+          <text x={left - 10} y={y(v) + 4} fontSize="10" fill="var(--muted)" textAnchor="end">
             {fmt(v, log ? 0 : 1)}
           </text>
         </g>
       ))}
       {ticks(minQ, maxQ).map((v, i) => (
-        <text key={`q${i}`} x={x(v)} y={bottom + 18} textAnchor="middle" fontSize="10" fill="#8d8784">
+        <text key={`q${i}`} x={x(v)} y={bottom + 18} textAnchor="middle" fontSize="10" fill="var(--muted)">
           {fmt(v, log ? 0 : 1)}
         </text>
       ))}
@@ -288,7 +288,7 @@ export function JackknifeChart({ spec }: { spec: JackSpec }) {
         <polyline
           points={iso.map(([q, t]) => `${x(q)},${y(t)}`).join(" ")}
           fill="none"
-          stroke="#8d8784"
+          stroke="var(--muted)"
           strokeWidth="1"
           strokeDasharray="2 4"
         >
@@ -296,26 +296,26 @@ export function JackknifeChart({ spec }: { spec: JackSpec }) {
         </polyline>
       )}
       <text x={left + 6} y={top + 13} fontSize="9.5" fontWeight="800" fill="#c27a12">CRÍTICO</text>
-      <text x={right - 6} y={top + 13} textAnchor="end" fontSize="9.5" fontWeight="800" fill="#b80d19">CRÍTICO-CRÔNICO</text>
+      <text x={right - 6} y={top + 13} textAnchor="end" fontSize="9.5" fontWeight="800" fill="var(--coke-deep)">CRÍTICO-CRÔNICO</text>
       <text x={left + 6} y={bottom - 6} fontSize="9.5" fontWeight="800" fill="#1f8a63">CONFORTO</text>
       <text x={right - 6} y={bottom - 6} textAnchor="end" fontSize="9.5" fontWeight="800" fill="#3a67c4">CRÔNICO</text>
-      <line x1={cutX} x2={cutX} y1={top} y2={bottom} stroke="#2a2828" strokeWidth="1.2" />
-      <line x1={left} x2={right} y1={cutY} y2={cutY} stroke="#2a2828" strokeWidth="1.2" />
+      <line x1={cutX} x2={cutX} y1={top} y2={bottom} stroke="var(--ink)" strokeWidth="1.2" />
+      <line x1={left} x2={right} y1={cutY} y2={cutY} stroke="var(--ink)" strokeWidth="1.2" />
       {/* Valores dos cortes, como no exemplo do descritivo */}
       <g>
-        <rect x={cutX - 18} y={top - 17} width="36" height="15" rx="4" fill="#fff" stroke="#e0101f" />
-        <text x={cutX} y={top - 6} textAnchor="middle" fontSize="9.5" fontWeight="800" fill="#e0101f">
+        <rect x={cutX - 18} y={top - 17} width="36" height="15" rx="4" fill="var(--card)" stroke="var(--coke)" />
+        <text x={cutX} y={top - 6} textAnchor="middle" fontSize="9.5" fontWeight="800" fill="var(--coke)">
           {fmt(spec.qCut, 1)}
         </text>
-        <rect x={right + 3} y={cutY - 8} width="34" height="15" rx="4" fill="#fff" stroke="#e0101f" />
-        <text x={right + 20} y={cutY + 3} textAnchor="middle" fontSize="9.5" fontWeight="800" fill="#e0101f">
+        <rect x={right + 3} y={cutY - 8} width="34" height="15" rx="4" fill="var(--card)" stroke="var(--coke)" />
+        <text x={right + 20} y={cutY + 3} textAnchor="middle" fontSize="9.5" fontWeight="800" fill="var(--coke)">
           {fmt(spec.tCut, 1)}
         </text>
       </g>
-      <text x={left} y="12" fontSize="10" fill="#8d8784">
+      <text x={left} y="12" fontSize="10" fill="var(--muted)">
         MTTR (MIN){log ? " · ESCALA LOG" : ""}
       </text>
-      <text x={(left + right) / 2} y="300" textAnchor="middle" fontSize="11" fill="#5e5a58">
+      <text x={(left + right) / 2} y="300" textAnchor="middle" fontSize="11" fill="var(--ink-soft)">
         Nº de falhas{log ? " (escala log)" : ""}
       </text>
       {items.map((m, i) => (
@@ -329,6 +329,7 @@ export function JackknifeChart({ spec }: { spec: JackSpec }) {
             cy={y(m.mttr)}
             r={spec.numbered ? 9 : 7}
             className="jk-dot"
+            style={{ animationDelay: `${Math.min(i, 30) * 25}ms` }}
             fill={categoryColor[m.category]}
             stroke="white"
             strokeWidth="1.5"
@@ -340,7 +341,7 @@ export function JackknifeChart({ spec }: { spec: JackSpec }) {
               textAnchor="middle"
               fontSize="9"
               fontWeight="800"
-              fill="#fff"
+              fill="var(--card)"
               pointerEvents="none"
             >
               {i + 1}
@@ -348,7 +349,7 @@ export function JackknifeChart({ spec }: { spec: JackSpec }) {
           )}
           <title>{`${i + 1}. ${m.label}${m.sub ? ` · ${m.sub}` : ""}\n${m.count} falhas · MTTR ${fmt(m.mttr, 2)} min\n${m.category}`}</title>
           {spec.labels && (
-            <text x={x(m.count) + 12} y={y(m.mttr) + (i % 2 ? 13 : -9)} fill="#2a2828" fontSize="10">
+            <text x={x(m.count) + 12} y={y(m.mttr) + (i % 2 ? 13 : -9)} fill="var(--ink)" fontSize="10">
               {m.label.slice(0, 22)}
             </text>
           )}
@@ -357,7 +358,7 @@ export function JackknifeChart({ spec }: { spec: JackSpec }) {
       {CATEGORIES.map((label, i) => (
         <g key={label}>
           <circle cx={64 + i * 140} cy="336" r="4" fill={categoryColor[label]} />
-          <text x={74 + i * 140} y="340" fontSize="10" fill="#5e5a58">
+          <text x={74 + i * 140} y="340" fontSize="10" fill="var(--ink-soft)">
             {label}
           </text>
         </g>
@@ -365,6 +366,21 @@ export function JackknifeChart({ spec }: { spec: JackSpec }) {
     </svg>
   );
 }
+
+const EXPORT_COLORS: Record<string, string> = {
+  "--card": "#ffffff",
+  "--muted": "#8a8f98",
+  "--ink-soft": "#565a63",
+  "--ink": "#1d1d1f",
+  "--coke": "#c8102e",
+  "--coke-deep": "#a00d25",
+  "--line": "#e6e9ee",
+  "--line-strong": "#d5dae1",
+  "--q-critico": "#fdf6ea",
+  "--q-cc": "#fbeef0",
+  "--q-conforto": "#eef8f3",
+  "--q-cronico": "#eef3fc",
+};
 
 /* Exporta o SVG em PNG pelo navegador (usado nos gráficos manuais). */
 export function svgToPng(svg: SVGSVGElement | null | undefined, name: string) {
@@ -375,6 +391,14 @@ export function svgToPng(svg: SVGSVGElement | null | undefined, name: string) {
   clone.setAttribute("height", String(box.height));
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   clone.style.fontFamily = "Arial, sans-serif";
+  // O arquivo sai sempre no tema claro (fundo branco): troca as variáveis de tema pelas cores claras.
+  clone.querySelectorAll("[fill^='var('], [stroke^='var(']").forEach((el) => {
+    for (const attr of ["fill", "stroke"]) {
+      const v = el.getAttribute(attr);
+      const m = v && /^var\((--[\w-]+)\)$/.exec(v);
+      if (m) el.setAttribute(attr, EXPORT_COLORS[m[1]] || "#1d1d1f");
+    }
+  });
   clone.querySelectorAll("rect.pareto-bar, circle.jk-dot").forEach((el) => {
     el.removeAttribute("class");
     el.removeAttribute("style");
@@ -576,7 +600,7 @@ export function Charts({
                     </button>
                   </>
                 ) : kind === "jackknife" ? (
-                  `Cortes (medianas): ${fmt(jackSpec.qCut, 1)} falhas · ${fmt(jackSpec.tCut, 1)} min de MTTR. Os números dos pontos são a sequência da tabela abaixo.`
+                  `Cortes: Q médio ${fmt(jackSpec.qCut, 1)} falhas · MTTR ${fmt(jackSpec.tCut, 1)} min (tempo total ÷ falhas). Os números dos pontos são a sequência da tabela abaixo.`
                 ) : (
                   "Máquinas ordenadas pelo tempo de parada (colunas S/Q). Q no pé da coluna = quantidade de falhas."
                 )}
@@ -593,7 +617,7 @@ export function Charts({
             Passe sobre um ponto ou uma barra para conferir os valores.
             {isManual(expanded)
               ? " Este gráfico foi montado manualmente."
-              : " As linhas de corte do crítico-crônico são as medianas do conjunto filtrado."}
+              : " Linhas de corte do crítico-crônico: Q médio e MTTR do conjunto filtrado (tempo total ÷ nº de falhas), como no descritivo."}
           </p>
         </Modal>
       )}

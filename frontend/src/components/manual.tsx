@@ -74,7 +74,7 @@ export const defaultManual: ManualConfig = {
     enabled: false,
     title: "",
     groupBy: "machine",
-    cutMode: "median",
+    cutMode: "mean",
     cutQ: 0,
     cutT: 0,
     scale: "log",
@@ -224,8 +224,10 @@ const mean = (v: number[]) => (v.length ? v.reduce((a, b) => a + b, 0) / v.lengt
 function jackCuts(rows: JackRow[], c: JackConfig) {
   const live = rows.filter((r) => !r.excluded && r.count > 0);
   if (c.cutMode === "manual") return { q: c.cutQ, t: c.cutT };
-  const f = c.cutMode === "mean" ? mean : median;
-  return { q: f(live.map((r) => r.count)), t: f(live.map((r) => r.mttr)) };
+  if (c.cutMode === "median") return { q: median(live.map((r) => r.count)), t: median(live.map((r) => r.mttr)) };
+  // Padrão (Knights, igual ao exemplo do descritivo): Q médio e MTTR do conjunto = tempo total ÷ falhas.
+  const totalQ = live.reduce((n, r) => n + r.count, 0);
+  return { q: mean(live.map((r) => r.count)), t: totalQ ? live.reduce((n, r) => n + r.minutes, 0) / totalQ : 0 };
 }
 export function jackknifeItems(data: Analytics, c: JackConfig): JackSpec {
   const rows = jackRows(data, c);
@@ -437,7 +439,7 @@ export function ManualBuilder({
   const jSpec = useMemo(() => jackknifeItems(data, later.jackknife), [data, later.jackknife]);
   const pTotal = useMemo(() => pRows.reduce((n, r) => n + (r.excluded || r.value <= 0 ? 0 : r.value), 0), [pRows]);
   const cuts = useMemo(() => jackCuts(jRows, j), [jRows, j]);
-  const autoCuts = useMemo(() => jackCuts(jRows, { ...j, cutMode: "median" }), [jRows, j]);
+  const autoCuts = useMemo(() => jackCuts(jRows, { ...j, cutMode: "mean" }), [jRows, j]);
   const paretoChart = useMemo(() => <ParetoChart spec={pSpec} />, [pSpec]);
   const jackChart = useMemo(() => <JackknifeChart spec={jSpec} />, [jSpec]);
   const stale = later !== draft;
@@ -657,8 +659,8 @@ export function ManualBuilder({
                     setJ({ cutMode: v, ...(v === "manual" && !j.cutQ && !j.cutT ? { cutQ: Number(autoCuts.q.toFixed(1)), cutT: Number(autoCuts.t.toFixed(1)) } : {}) })
                   }
                   options={[
+                    ["mean", "Padrão (média)"],
                     ["median", "Mediana"],
-                    ["mean", "Média"],
                     ["manual", "Valor manual"],
                   ]}
                 />

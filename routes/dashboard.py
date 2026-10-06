@@ -288,8 +288,8 @@ def jackknife():
             point["equipamento"] = row["label"]
         points.append(point)
 
-    q_threshold = _median([point["Q"] for point in points])
-    mttr_threshold = _median([point["MTTR"] for point in points])
+    q_threshold = sum(point["Q"] for point in points) / len(points) if points else 0
+    mttr_threshold = (sum(point["T"] for point in points) / sum(point["Q"] for point in points)) if sum(point["Q"] for point in points) else 0
     for point in points:
         point["categoria"] = _classify_quadrant(
             point["Q"], point["MTTR"], q_threshold, mttr_threshold

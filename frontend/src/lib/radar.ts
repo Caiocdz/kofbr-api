@@ -1,4 +1,4 @@
-export type View = "inicio" | "importar" | "quadro" | "analise" | "comparar" | "gerar" | "fluxo";
+export type View = "inicio" | "importar" | "quadro" | "analise" | "comparar" | "gerar" | "fluxo" | "desempenho";
 export type Route = { view: View; id?: string; day?: string; step?: number };
 export type Daily = {
   date: string;
@@ -59,6 +59,9 @@ export type Card = {
   validated_by?: string;
   suggestion?: string;
   frozen?: boolean;
+  /** Sino de revisão: quando entrou e a anotação do analista. */
+  held_at?: string;
+  held_note?: string;
 };
 export type Confidence = "alta" | "media" | "baixa" | "manual";
 export type Automation = {
@@ -82,11 +85,38 @@ export type Learning = {
   trained_at: string | null;
   accuracy: number | null;
   training?: boolean;
+  /** Evolução do acerto medido a cada treino (mais antigo primeiro). */
+  history?: { at: string; accuracy: number; examples: number; classes: number }[];
+  /** Exemplos necessários para medir o acerto (20% separados para teste). */
+  measure_min?: number;
+  /** Uma entrada por planilha finalizada: quanto a ML acertou nela (mais antiga primeiro). */
+  sheets?: SheetReport[];
+};
+export type SheetReport = {
+  id: string;
+  name: string;
+  records: number;
+  cards: number;
+  /** % dos apontamentos em que a classe sugerida na chegada foi mantida pelo analista. */
+  hit_rate: number;
+  corrections: number;
+  /** % dos apontamentos que já chegaram classificados pelo que foi aprendido antes. */
+  from_past: number;
+  unclassified: number;
+  estimated?: boolean;
+  finished_at?: string;
+  examples_before?: number;
+  examples_after?: number;
+  model_before?: number | null;
+  model_after?: number | null;
+  model_ready?: boolean;
+  memory?: number;
+  previous_hit_rate?: number | null;
 };
 export const CONFIDENCE: Record<Confidence, { label: string; hint: string; color: string }> = {
   alta: { label: "Confiança alta", hint: "Regra ou termo único do catálogo confirmado pelo aprendizado, ou relato já corrigido antes pelo analista.", color: "#1f8a63" },
   media: { label: "Confiança média", hint: "O relato cita mais de um item, teve correção de digitação ou o card mistura classes. Dê uma olhada.", color: "#e89a1c" },
-  baixa: { label: "Revisar", hint: "Nem o catálogo nem o aprendizado reconheceram. Precisa do analista.", color: "#e0101f" },
+  baixa: { label: "Revisar", hint: "Nem o catálogo nem o aprendizado reconheceram. Precisa do analista.", color: "#c8102e" },
   manual: { label: "Pelo analista", hint: "Classe escolhida por uma pessoa. Fica na memória para os próximos dias.", color: "#3a67c4" },
 };
 export type Board = Analysis & {
@@ -95,6 +125,12 @@ export type Board = Analysis & {
   classes: string[];
   unclassified_count: number;
   automation: Automation;
+  finished_at?: string | null;
+  /** Próximo passo do Desfazer (Ctrl+Z) / Refazer (Ctrl+Y). */
+  undo?: { action: string; card: string | null; count: number } | null;
+  redo?: { action: string; card: string | null; count: number } | null;
+  /** Ordem manual das caixas por coluna: "falha:<classe>" | "maquina:<coluna>" → ids. */
+  layout?: Record<string, string[]>;
   events: {
     action: string;
     at: string;
@@ -174,7 +210,7 @@ export const CATEGORIES = [
   "Conforto",
 ] as const;
 export const categoryColor: Record<string, string> = {
-  "Crítico-crônico": "#e0101f",
+  "Crítico-crônico": "#c8102e",
   Crítico: "#e89a1c",
   Crônico: "#3a67c4",
   Conforto: "#1f8a63",
@@ -200,6 +236,8 @@ export type Analytics = {
   total_machines: number;
 };
 export type Filters = {
+  /** Unidade fabril com mais apontamentos quando a base tem mais de uma (o dashboard abre nela). */
+  main_unit?: string;
   units: string[];
   lines: string[];
   failures: string[];
@@ -336,7 +374,7 @@ export function readRoute(): Route {
   const [path, search] = window.location.hash.slice(1).split("?");
   const [view, id] = path.split("/");
   return {
-    view: ["inicio", "importar", "quadro", "analise", "comparar", "gerar", "fluxo"].includes(view)
+    view: ["inicio", "importar", "quadro", "analise", "comparar", "gerar", "fluxo", "desempenho"].includes(view)
       ? (view as View)
       : "inicio",
     id,

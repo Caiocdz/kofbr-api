@@ -46,7 +46,7 @@ def upload():
         previous = conn.execute('SELECT id FROM radar_analyses WHERE content_hash = ?', (fingerprint,)).fetchone()
     if previous:
         return jsonify(erro='Esta planilha já está no histórico.', existing_id=previous['id']), 409
-    doc = importer.new_document(records, filename, warnings)
+    doc = service.snapshot_suggestions(importer.new_document(records, filename, warnings))
     analysis_id, inserted = store.insert(doc, fingerprint, data)
     if not inserted:
         return jsonify(erro='Esta planilha já está no histórico.', existing_id=analysis_id), 409
@@ -86,7 +86,18 @@ def action(analysis_id):
         previous = {c['id']: c.get('failure_class') for c in doc['cards']}
         service.learn(updated, {body.get('card_id')}, previous)
     elif body.get('action') == 'set_classes':
-        service.learn(updated, {str((i or {}).get('card_id')) for i in body.get('items') or []})
+        previous = {c['id']: c.get('failure_class') for c in doc['cards']}
+        service.learn(updated, {str((i or {}).get('card_id')) for i in body.get('items') or []}, previous)
+    elif body.get('action') == 'release' and 'failure_class' in body:
+        previous = {c['id']: c.get('failure_class') for c in doc['cards']}
+        service.learn(updated, {body.get('card_id')}, previous)
+    elif body.get('action') in ('undo', 'redo'):
+        # A memória de correções acompanha o desfazer: o que voltou ao automático é esquecido.
+        previous = {c['id']: c.get('failure_class') for c in doc['cards']}
+        now = {c['id']: c.get('failure_class') for c in updated['cards']}
+        changed = {i for i in now if now[i] != previous.get(i)}
+        if changed:
+            service.learn(updated, changed, previous)
     if body.get('action') in LEARNING_ACTIONS:
         # O modelo aprende com cada validação/correção, em segundo plano.
         from . import learning
@@ -94,20 +105,25 @@ def action(analysis_id):
     return jsonify(service.board(updated))
 
 
-LEARNING_ACTIONS = {'set_class', 'set_classes', 'validate_card', 'validate_column', 'validate_all',
+LEARNING_ACTIONS = {'set_class', 'set_classes', 'merge_cards', 'undo', 'redo', 'release', 'validate_card', 'validate_column', 'validate_all',
                     'validate_confident', 'validate_cards', 'move'}
 
 
 @bp.route('/learning', methods=['GET'])
 def learning_status():
+    """Desempenho da ML: modelo (acerto em teste cego e evolução), acerto por planilha finalizada e memória."""
     from . import learning
-    return jsonify(learning.info() | {'training': learning._state['training']})
+    return jsonify(learning.info() | {'training': learning._state['training'], 'sheets': service.learning_sheets(),
+                                      'memory': len(service.memory()),
+                                      'pending': sum(1 for d in store.all_documents()
+                                                     if d.get('mode') != 'ml' and not service.finished(d))})
 
 
 @bp.route('/learning/train', methods=['POST'])
 def learning_train():
     from . import learning
-    return jsonify(learning.train(service.training_rows(), force=True) | {'training': False})
+    learning.train(service.training_rows(), force=True)
+    return learning_status()
 
 
 @bp.route('/memory', methods=['GET'])
@@ -133,8 +149,35 @@ def forget_memory():
 def finish(analysis_id):
     doc = document(analysis_id)
     if not service.ready(doc):
-        return jsonify(erro='Valide todos os cards e resolva os itens do sino antes de avançar.'), 409
-    return jsonify(ready=True)
+        return jsonify(erro='Valide todos os cards fora do sino antes de avançar.'), 409
+    if doc.get('mode') == 'ml':
+        return jsonify(ready=True)
+    # Finalizar = a ML aprende com esta planilha (treino na hora) e mede quanto acertou nela.
+    return jsonify(ready=True, learning=service.finish_learning(doc))
+
+
+@bp.route('/analyses/<analysis_id>/completa')
+def analysis_full(analysis_id):
+    """A planilha que foi importada, inteira, com a coluna Classificação que saiu do quadro."""
+    from . import resumo
+    doc = document(analysis_id)
+    if doc.get('mode') == 'ml':
+        raise ValueError('Para análises do fluxo único, baixe a planilha classificada pelo próprio fluxo.')
+    data, name = resumo.full_from_analysis(doc, store.source(analysis_id))
+    mime = ('application/vnd.ms-excel.sheet.macroEnabled.12' if name.endswith('.xlsm')
+            else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    return send_file(io.BytesIO(data), as_attachment=True, download_name=name, mimetype=mime)
+
+
+@bp.route('/analyses/<analysis_id>/resumo.xlsx')
+def analysis_resumo(analysis_id):
+    from . import resumo
+    doc = document(analysis_id)
+    if doc.get('mode') == 'ml':
+        raise ValueError('A planilha resumida por observação está disponível para análises do quadro.')
+    data, name = resumo.from_analysis(doc)
+    return send_file(io.BytesIO(data), as_attachment=True, download_name=name,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
 @bp.route('/analyses/<analysis_id>/source')

@@ -54,7 +54,12 @@ def learn(doc, card_ids, previous=None):
                 mem[key] = {'label': label, 'count': old.get('count', 0) + 1 if old.get('label') == label else 1, 'at': now}
                 changed += 1
             elif previous and (mem.get(key) or {}).get('label') == previous.get(card['id']):
-                mem.pop(key, None)
+                # Devolvido à classe original: se ela tinha vindo da memória (lição de outra planilha),
+                # a lição antiga volta; senão a correção é esquecida.
+                if card.get('suggested_source') == 'memoria' and card.get('suggested'):
+                    mem[key] = {'label': card['suggested'], 'count': 1, 'at': now}
+                else:
+                    mem.pop(key, None)
                 changed += 1
     if changed:
         store.set_setting('class_memory', mem)
@@ -113,8 +118,19 @@ def final_class(card, auto_label):
     return card.get('failure_class') or (card.get('validated_class') if card.get('validated') else None) or auto_label
 
 
+def finished(doc):
+    """Planilha que o analista deu como finalizada (botão "Ver análises").
+    Importações antigas, de antes deste controle, contam quando estão 100% validadas."""
+    if doc.get('mode') == 'ml':
+        return False
+    if 'finished_at' in doc:
+        return bool(doc['finished_at'])
+    active = [c for c in doc.get('cards') or [] if not c.get('held')]
+    return bool(active) and all(c.get('validated') for c in active)
+
+
 def training_rows():
-    """Exemplos para o aprendizado: tudo o que pessoas já validaram."""
+    """Exemplos para o aprendizado: as planilhas FINALIZADAS (validadas por pessoas) + a memória de correções."""
     from . import store
     cat, mem = catalog(), memory()
 
@@ -125,7 +141,117 @@ def training_rows():
         details = {i: fc.explain(records[i].get('observacao_raw'), records[i].get('equipamento'), cat, mem)
                    for i in card['record_ids']}
         return card_auto(card, details)['label']
-    return learning.examples(store.all_documents(), mem, label)
+    from .resumo import sheet_examples
+    return learning.examples([d for d in store.all_documents() if finished(d)], mem, label,
+                             sheet_examples() + folder_examples())
+
+
+_folder_cache = {'key': None, 'rows': []}
+
+
+def folder_examples():
+    """(relato, classe) das planilhas já classificadas pelos analistas na pasta de treino
+    ("planilhas modelo/plhanilha treinamento de ml" ou KOFBR_ML_TRAIN_DIR): Observações + Classificação.
+    O rótulo do analista é enquadrado no padrão do descritivo (FALHA DE <componente>) pelo mesmo
+    tratamento da tela de apontamentos (rótulos sem informação, duplicadas e conflitos tratados).
+    Com isso o quadro já começa sabendo o que os analistas classificaram antes."""
+    from . import apontamentos_ml as ml
+    try:
+        files = ml._training_files()
+    except ValueError:
+        return []
+    key = tuple((f.name, f.stat().st_size, int(f.stat().st_mtime)) for f in files)
+    if _folder_cache['key'] != key:
+        try:
+            raw, _, counts = ml.read_folder()
+            examples, _, _ = ml.prepare(raw, [], catalog(), counts)
+            rows = [(e['raw'], e['cls']) for e in examples if e.get('cls') and e['cls'] not in fc.UNCLASSIFIED]
+        except Exception:
+            rows = []
+        _folder_cache.update(key=key, rows=rows)
+    return _folder_cache['rows']
+
+
+def snapshot_suggestions(doc):
+    """Grava em cada card a classe que a ML sugeriu NA CHEGADA da planilha. Ao finalizar,
+    comparamos com a classe final do analista: é o acerto real da ML nesta planilha."""
+    details = details_for(doc['records'], catalog(), memory())
+    for card in doc['cards']:
+        info = card_auto(card, details)
+        card['suggested'] = info['label']
+        card['suggested_source'] = info['source']
+    return doc
+
+
+def sheet_report(doc):
+    """Quanto a ML acertou nesta planilha (ponderado pelos apontamentos) e de onde veio cada acerto."""
+    cards = board(doc)['cards']
+    # Relato em branco não tem o que classificar: fica fora da conta.
+    blank = lambda c, raw: c['class'] == fc.SEM_DESCRICAO and (raw.get('suggested') or c['auto_class']) == fc.SEM_DESCRICAO
+    total = sum(c['count'] for c, raw in zip(cards, doc['cards']) if not blank(c, raw)) or 1
+    hits = changed = from_past = 0
+    for c, raw in zip(cards, doc['cards']):
+        if blank(c, raw):
+            continue
+        suggested = raw.get('suggested') or c['auto_class']
+        if c['class'] == suggested and suggested not in fc.UNCLASSIFIED:
+            hits += c['count']
+        elif c['class'] != suggested:
+            changed += 1
+        if raw.get('suggested_source', c['source']) in ('memoria', 'aprendizado'):
+            from_past += c['count']
+    return {'id': doc['id'], 'name': doc.get('name') or doc.get('filename'), 'records': len(doc['records']),
+            'cards': len(cards), 'hit_rate': round(hits * 100 / total, 1), 'corrections': changed,
+            'from_past': round(from_past * 100 / total, 1),
+            'unclassified': sum(c['class'] in fc.UNCLASSIFIED for c in cards),
+            'estimated': not all('suggested' in raw for raw in doc['cards'])}
+
+
+def finish_learning(doc):
+    """Ao finalizar: mede o acerto da planilha, marca como finalizada e retreina a ML com ela."""
+    from . import store
+    report = sheet_report(doc)
+    before = learning.info()
+    if not doc.get('finished_at'):
+        updated = deepcopy(doc)
+        updated['finished_at'] = datetime.now().astimezone().isoformat()
+        updated['revision'] += 1
+        if store.save(updated, doc['revision']):
+            doc = updated
+    after = learning.train(training_rows(), force=True)
+    report |= {'finished_at': doc.get('finished_at'), 'examples_before': before.get('examples') or 0,
+               'examples_after': after.get('examples') or 0, 'model_before': before.get('accuracy'),
+               'model_after': after.get('accuracy'), 'model_ready': bool(after.get('ready')),
+               'memory': len(memory())}
+    sheets = [s for s in (store.get_setting('learning_sheets') or []) if s.get('id') != doc['id']]
+    report['previous_hit_rate'] = sheets[-1]['hit_rate'] if sheets else None
+    store.set_setting('learning_sheets', (sheets + [report])[-60:])
+    return report
+
+
+def learning_sheets():
+    from . import store
+    return store.get_setting('learning_sheets') or []
+
+
+def original_class(doc, card, cat=None, mem=None):
+    """Classe que a ML sugeriu quando a planilha chegou (antes de qualquer correção feita neste card)."""
+    if card.get('suggested'):
+        return card['suggested']
+    records = {r['id']: r for r in doc['records']}
+    mem = dict(memory() if mem is None else mem)
+    for rid in card['record_ids']:
+        mem.pop(fc.memory_key(records[rid].get('observacao_raw')), None)
+    return card_auto_class(card, records, cat or catalog(), mem)
+
+
+def _set_label(doc, card, label):
+    """Classe manual; devolver o card à classe ORIGINAL (a da chegada) volta ao automático,
+    com a cor de criticidade de antes, em vez de virar "alteração manual"."""
+    if label and label != original_class(doc, card):
+        card['failure_class'] = label
+    else:
+        card.pop('failure_class', None)
 
 
 def card_auto_class(card, records, cat, mem=None):
@@ -193,7 +319,10 @@ def ready(doc):
         # Fluxo único: o Dashboard libera depois do primeiro "Salvar" da validação.
         from . import pipeline
         return pipeline.is_ready(doc)
-    return bool(doc['cards']) and all(c['validated'] and not c['held'] for c in doc['cards'])
+    # Itens no sino NÃO travam: a planilha pode ser finalizada e eles entram nos gráficos
+    # do dia deles quando forem devolvidos (reduced_records só usa cards validados fora do sino).
+    active = [c for c in doc['cards'] if not c['held']]
+    return bool(active) and all(c['validated'] for c in active)
 
 
 def summary(doc):
@@ -247,9 +376,19 @@ def board(doc):
         })
     labels = set(fc.classifier_for(cat).labels()) | {c['class'] for c in cards} | {v['label'] for v in mem.values()}
     return summary(doc) | {'columns': doc['columns'], 'events': doc['events'][-100:], 'cards': cards,
+                           'layout': doc.get('layout') or {},
                            'classes': sorted(labels - set(fc.UNCLASSIFIED)) + list(fc.UNCLASSIFIED),
                            'unclassified_count': sum(c['class'] == fc.SEM_MODO for c in cards),
-                           'automation': automation(doc, cards, events, mem) | {'learning': learning.info()}}
+                           'finished_at': doc.get('finished_at'),
+                           'undo': _peek(doc, 'undo'), 'redo': _peek(doc, 'redo'),
+                           'automation': automation(doc, cards, events, mem)
+                           | {'learning': learning.info() | {'sheets': learning_sheets()}}}
+
+
+def _peek(doc, name):
+    """Próximo passo do desfazer/refazer para o botão: {'action', 'card', 'count'} ou None."""
+    stack = doc.get(name) or []
+    return {'action': stack[-1]['action'], 'card': stack[-1].get('card'), 'count': len(stack)} if stack else None
 
 
 def automation(doc, cards, events, mem):
@@ -270,18 +409,94 @@ def automation(doc, cards, events, mem):
             'pending_high': sum(1 for c in cards if c['confidence'] in ('alta', 'manual') and not c['validated'] and not c['held'])}
 
 
+UNDO_LIMIT = 15
+UNDO_KEYS = ('cards', 'columns', 'layout')
+
+
+def _state(doc):
+    return {k: deepcopy(doc.get(k)) for k in UNDO_KEYS}
+
+
+def _history_step(doc, body):
+    """Desfazer / refazer: troca o estado do quadro (cards, colunas, ordem) pelo da pilha."""
+    action = body['action']
+    source, target = ('undo', 'redo') if action == 'undo' else ('redo', 'undo')
+    stack = doc.get(source) or []
+    if not stack:
+        raise ValueError('Nada para desfazer.' if action == 'undo' else 'Nada para refazer.')
+    step = stack.pop()
+    doc[target] = (doc.get(target) or [])[-(UNDO_LIMIT - 1):] + [{**step, 'state': _state(doc)}]
+    for k in UNDO_KEYS:
+        if step['state'].get(k) is None:
+            doc.pop(k, None)
+        else:
+            doc[k] = step['state'][k]
+    doc[source] = stack
+    doc['revision'] += 1
+    doc['updated_at'] = datetime.now().astimezone().isoformat()
+    doc['events'].append({'action': action, 'at': doc['updated_at'], 'card': step.get('card'), 'column': None,
+                          'revision': doc['revision'], 'value': step['action']})
+    return doc
+
+
+def _working_copy(doc):
+    """Cópia para editar: só o que as ações mudam é copiado a fundo. Os apontamentos (records)
+    nunca são alterados pelas ações e ficam compartilhados — copiá-los custava ~4 s por clique
+    numa planilha de 15 mil linhas."""
+    out = dict(doc)
+    for k in ('cards', 'columns', 'layout'):
+        if k in doc:
+            out[k] = deepcopy(doc[k])
+    for k in ('events', 'undo', 'redo'):
+        if k in doc:
+            out[k] = list(doc[k])
+    return out
+
+
 def mutate(doc, body):
-    doc = deepcopy(doc)
+    original = doc
+    doc = _working_copy(doc)
     action = body.get('action')
+    if action in ('undo', 'redo'):
+        return _history_step(doc, body)
+    # Estado anterior para o Ctrl+Z: o documento original não é alterado, então não precisa copiar.
+    before = {k: original.get(k) for k in UNDO_KEYS}
     cards = {c['id']: c for c in doc['cards']}
     columns = {c['id']: c for c in doc['columns']}
     card = cards.get(body.get('card_id'))
     column = columns.get(body.get('column_id'))
-    if action in {'validate_card', 'hold', 'move', 'rename_card', 'split_card', 'set_class'} and not card:
+    if action in {'validate_card', 'hold', 'hold_note', 'release', 'move', 'rename_card', 'split_card', 'set_class'} and not card:
         raise ValueError('Card não encontrado.')
     if action in {'validate_column', 'delete_column', 'move'} and not column:
         raise ValueError('Coluna não encontrada.')
-    if action == 'validate_card':
+    _apply_layout(doc, body.get('layout'))
+    if action == 'merge_cards':
+        # "Soltar card sobre card": o relato arrastado entra no card de destino (com confirmação na tela).
+        target = cards.get(body.get('target_id'))
+        if not card or not target or card is target:
+            raise ValueError('Escolha dois cards diferentes para agrupar.')
+        if card['column_id'] != target['column_id']:
+            raise ValueError('Só dá para agrupar relatos da mesma máquina e linha (o contexto não pode se misturar).')
+        if card['held'] or target['held']:
+            raise ValueError('Tire os cards do sino antes de agrupar.')
+        cat, mem = catalog(), memory()
+        records = {r['id']: r for r in doc['records']}
+        old_class = target.get('failure_class') or card_auto_class(target, records, cat, mem)
+        target['record_ids'] = target['record_ids'] + [r for r in card['record_ids'] if r not in target['record_ids']]
+        target['validated'] = False
+        doc['cards'] = [c for c in doc['cards'] if c['id'] != card['id']]
+        # O card de destino manda: se a mistura mudaria a classe automática, a dele fica fixada.
+        if not target.get('failure_class') and card_auto_class(target, records, cat, mem) != old_class:
+            target['failure_class'] = old_class
+        for key, ids in (doc.get('layout') or {}).items():
+            doc['layout'][key] = [i for i in ids if i != card['id']]
+        merged_from = card['name']
+        card = target
+    elif action == 'reorder':
+        # Só a ordem visual das caixas numa coluna (em cima / embaixo); não muda classe nem validação.
+        if not body.get('layout'):
+            raise ValueError('Informe a nova ordem.')
+    elif action == 'validate_card':
         if card['held']:
             raise ValueError('Mova o card de revisão para uma coluna antes de validar.')
         card['validated'] = not card['validated']
@@ -293,10 +508,7 @@ def mutate(doc, body):
     elif action == 'set_class':
         # Classificação manual da falha (item 1.4): vazio volta ao automático.
         label = re.sub(r'\s+', ' ', str(body.get('failure_class') or '')).strip().upper()[:120]
-        if label:
-            card['failure_class'] = label
-        else:
-            card.pop('failure_class', None)
+        _set_label(doc, card, label)
     elif action == 'set_classes':
         # Lote de classes definidas pelo analista.
         items = body.get('items') or []
@@ -306,7 +518,7 @@ def mutate(doc, body):
             target = cards.get(str((it or {}).get('card_id')))
             label = re.sub(r'\s+', ' ', str((it or {}).get('failure_class') or '')).strip().upper()[:120]
             if target and label:
-                target['failure_class'] = label
+                _set_label(doc, target, label)
                 target['validated'] = False
     elif action == 'validate_confident':
         # Lote seguro: só cards de confiança alta (ou já classificados pelo analista).
@@ -331,14 +543,38 @@ def mutate(doc, body):
         # Confirmação humana explícita: a interface exige que a pessoa digite CONFIRMAR.
         if str(body.get('confirm') or '').strip().upper() != 'CONFIRMAR':
             raise ValueError('Digite CONFIRMAR para validar todos os cards.')
-        if any(c['held'] for c in cards.values()):
-            raise ValueError('Resolva os itens do sino antes de confirmar tudo.')
+        # Os itens do sino ficam lá (podem ser devolvidos depois); o resto é validado.
         for item in cards.values():
-            item['validated'] = True
+            if not item['held']:
+                item['validated'] = True
         for col in columns.values():
             col['validated'] = True
     elif action == 'hold':
         card['held'], card['validated'] = True, False
+        card['held_at'] = datetime.now().astimezone().isoformat(timespec='seconds')
+        note = str(body.get('note') or '').strip()[:300]
+        if note:
+            card['held_note'] = note
+        else:
+            card.pop('held_note', None)
+    elif action == 'hold_note':
+        if not card['held']:
+            raise ValueError('O card não está no sino.')
+        note = str(body.get('note') or '').strip()[:300]
+        if note:
+            card['held_note'] = note
+        else:
+            card.pop('held_note', None)
+    elif action == 'release':
+        # Devolver do sino: volta à coluna/falha dele (ou à falha escolhida) e, se pedido, já validado.
+        if not card['held']:
+            raise ValueError('O card não está no sino.')
+        if 'failure_class' in body:
+            label = re.sub(r'\s+', ' ', str(body.get('failure_class') or '')).strip().upper()[:120]
+            _set_label(doc, card, label)
+        card['held'], card['validated'] = False, bool(body.get('validate'))
+        for k in ('held_at', 'held_note'):
+            card.pop(k, None)
     elif action == 'move':
         was_validated = column['validated']
         card['column_id'], card['held'], card['validated'] = column['id'], False, was_validated
@@ -375,12 +611,39 @@ def mutate(doc, body):
             col['validated'] = all(c['validated'] for c in members)
     doc['revision'] += 1
     doc['updated_at'] = datetime.now().astimezone().isoformat()
+    # Pilha do "desfazer" (Ctrl+Z): guarda o estado de antes; uma ação nova limpa o "refazer".
+    doc['undo'] = (doc.get('undo') or [])[-(UNDO_LIMIT - 1):] + [
+        {'action': action, 'card': card['name'] if card else (column['name'] if column else None), 'state': before}]
+    doc['redo'] = []
+    if action == 'reorder':
+        return doc
     doc['events'].append({'action': action, 'at': doc['updated_at'], 'card': card['name'] if card else None,
                           'column': column['name'] if column else body.get('name'), 'revision': doc['revision'],
                           **({'value': card.get('failure_class') or 'automática'} if action == 'set_class' else {}),
                           **({'value': len(body.get('items') or [])} if action == 'set_classes' else {}),
-                          **({'value': len(body.get('card_ids') or [])} if action == 'validate_confident' else {})})
+                          **({'value': len(body.get('card_ids') or [])} if action == 'validate_confident' else {}),
+                          **({'value': merged_from} if action == 'merge_cards' else {})})
     return doc
+
+
+def _apply_layout(doc, layout):
+    """Ordem manual das caixas de uma coluna: {'key': 'falha:<classe>' | 'maquina:<coluna>', 'ids': [...]}."""
+    if not layout:
+        return
+    if not isinstance(layout, dict) or not isinstance(layout.get('ids'), list):
+        raise ValueError('Ordem inválida.')
+    key = str(layout.get('key') or '').strip()[:200]
+    if not key.startswith(('falha:', 'maquina:')):
+        raise ValueError('Ordem inválida.')
+    ids = list(dict.fromkeys(str(i)[:200] for i in layout['ids'] if i))[:3000]
+    saved = doc.setdefault('layout', {})
+    if ids:
+        saved[key] = ids
+    else:
+        saved.pop(key, None)
+    if len(saved) > 2000:
+        for old in list(saved)[: len(saved) - 2000]:
+            saved.pop(old, None)
 
 
 def _freeze_classes(doc):
@@ -483,6 +746,18 @@ def _counter(mode):
     return lambda rows: len({r.get('event_id') or (r.get('analysis_id'), r['id']) for r in rows})
 
 
+def jack_cuts(items):
+    """Linhas de corte do Jack-Knife pelo método padrão (Knights), o mesmo do exemplo do descritivo:
+    Q de corte = total de falhas ÷ nº de itens (média de Q);
+    MTTR de corte = tempo total ÷ total de falhas (MTTR do conjunto, ponderado pelo nº de falhas).
+    A mediana (usada antes) forçava metade dos itens de cada lado da linha."""
+    if not items:
+        return 0, 0
+    total_q = sum(m['count'] for m in items)
+    total_t = sum(m['minutes'] for m in items)
+    return total_q / len(items), (total_t / total_q if total_q else 0)
+
+
 def _cat(hq, ht):
     return 'Crítico-crônico' if hq and ht else 'Crítico' if ht else 'Crônico' if hq else 'Conforto'
 
@@ -502,8 +777,7 @@ def _compute(records, thresholds=None, mode='events'):
     if thresholds:
         q_cut, t_cut = thresholds
     else:
-        q_cut = median([m['count'] for m in machines]) if machines else 0
-        t_cut = median([m['mttr'] for m in machines]) if machines else 0
+        q_cut, t_cut = jack_cuts(machines)
     cumulative = 0.0
     for item in machines:
         cumulative += item['minutes']
@@ -548,8 +822,7 @@ def _failures(records, count=len):
                       'minutes': round(minutes, 2), 'mttr': round(minutes / q, 2) if q else 0,
                       'machines': [{'name': n, 'lines': c} for n, c in top]})
     items.sort(key=lambda m: (-m['minutes'], m['key']))
-    q_cut = median([m['count'] for m in items]) if items else 0
-    t_cut = median([m['mttr'] for m in items]) if items else 0
+    q_cut, t_cut = jack_cuts(items)
     cumulative = 0.0
     for m in items:
         cumulative += m['minutes']
@@ -561,7 +834,7 @@ def _failures(records, count=len):
 
 def compute(records, categories=None, mode='events'):
     """Indicadores do conjunto. Com filtro de criticidade, a classificação usa os
-    cortes (medianas) do conjunto completo e os totais passam a considerar só as
+    cortes (média de Q e MTTR do conjunto) do conjunto completo e os totais passam a considerar só as
     máquinas das classes escolhidas."""
     base = _compute(records, mode=mode)
     base['categories'] = {c: sum(m['category'] == c for m in base['machines']) for c in CATEGORIES}
@@ -577,9 +850,13 @@ def compute(records, categories=None, mode='events'):
 def options(documents):
     cat, mem = catalog(), memory()
     rows = [r for d in documents for r in reduced_records(d, cat, mem)]
-    return {key: sorted({r[field] for r in rows}) for key, field in
-            [('units', 'centro'), ('lines', 'linha'), ('failures', 'tipo_parada'), ('days', 'data_inicio'),
-             ('machines', 'equipamento'), ('classes', 'failure_class')]}
+    out = {key: sorted({r[field] for r in rows}) for key, field in
+           [('units', 'centro'), ('lines', 'linha'), ('failures', 'tipo_parada'), ('days', 'data_inicio'),
+            ('machines', 'equipamento'), ('classes', 'failure_class')]}
+    # Crítico-crônico é relativo a uma unidade fabril (descritivo 3.3): a tela abre na unidade principal.
+    units = Counter(r['centro'] for r in rows)
+    out['main_unit'] = units.most_common(1)[0][0] if len(units) > 1 else ''
+    return out
 
 
 def compare(documents, args):

@@ -297,11 +297,16 @@ class Classifier:
         return sorted(set(out)) + list(UNCLASSIFIED)
 
 
-_cache = {'key': None, 'classifier': None}
+_cache = {'key': None, 'classifier': None, 'obj': None}
 
 
 def classifier_for(catalog):
+    # Mesmo objeto de catálogo da chamada anterior (laço de milhares de relatos): não recalcula a chave.
+    # Sem isso, cada relato serializava o catálogo inteiro (2 s a cada clique com 15 mil linhas).
+    if catalog is _cache['obj'] and _cache['classifier'] is not None:
+        return _cache['classifier']
     key = json.dumps(catalog, sort_keys=True, ensure_ascii=False)
+    _cache['obj'] = catalog
     if _cache['key'] != key:
         _cache['key'], _cache['classifier'] = key, Classifier(catalog)
         _explain_cached.cache_clear()
