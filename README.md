@@ -10,7 +10,7 @@ a planilha de paradas do SAP em análise de manutenção, seguindo o descritivo 
 
 API em Python (Flask + scikit-learn), interface em Next.js/React servida pela própria API.
 
-**Identidade visual:** vermelho Coca-Cola `#E4002B` só na marca e nas ações, branco no conteúdo, cinza-gelo
+**Identidade visual:** vermelho Coca-Cola mais sóbrio `#C8102E` só na marca e nas ações, branco no conteúdo, cinza-gelo
 `#F4F6F8` nas superfícies e grafite no texto; títulos em Bricolage Grotesque e texto em Manrope. O símbolo do
 gargalo é vetorial com fundo transparente (`frontend/public/gargalo.svg` e `gargalo-branco.svg`; componente
 `GargaloMark` em `components/brand.tsx`). Animações: a abertura (a garrafa enche, a tampinha estoura, o
@@ -18,6 +18,9 @@ nome é escrito e a tela sobe com a onda) aparece uma vez por sessão; a garrafa
 carregamento; bolhas sobem ao validar, importar e finalizar; a tampinha estoura quando a ML aprende com uma
 planilha; a fita da barra lateral ondula; os números enchem de 0 até o valor. Tudo é desligado quando o
 sistema pede "reduzir movimento".
+
+**Modo escuro:** botão de sol/lua no topo. A escolha fica salva neste computador; sem escolha, segue o tema
+do sistema. Os arquivos exportados (Excel, PNG, PDF) saem sempre no tema claro.
 
 ## Abrir no Windows
 

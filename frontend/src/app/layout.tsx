@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { THEME_BOOT } from "@/lib/theme-boot";
 
 export const metadata: Metadata = {
   title: "Radar de Confiabilidade",
@@ -11,6 +12,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="pt-BR" className="h-full antialiased" suppressHydrationWarning>
       <head>
+        {/* Tema salvo (ou o do sistema) aplicado antes do primeiro quadro. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
         {/* Cobre a tela de vermelho desde o primeiro quadro quando a abertura vai tocar (sem piscar o app). */}
         <script
           dangerouslySetInnerHTML={{

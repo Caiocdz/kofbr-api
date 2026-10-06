@@ -9,9 +9,9 @@
 @import "@fontsource-variable/bricolage-grotesque";
 
 :root {
-  --coke: #e4002b;
-  --coke-deep: #b8001f;
-  --coke-dark: #8a0018;
+  --coke: #c8102e;
+  --coke-deep: #a00d25;
+  --coke-dark: #7a0a1c;
   --ice: #f4f6f8;
   --ice-2: #e9edf2;
   --graphite: #1d1d1f;
@@ -22,6 +22,10 @@
   --red-soft: #fff0f2;
   --red-line: #f8c6cf;
   --canvas: #ffffff;
+  --card: #ffffff;
+  --sidebar-top: var(--coke);
+  --sidebar-bottom: var(--coke-deep);
+  --sidebar-foot: #ffffff;
   --surface: var(--ice);
   --surface-2: var(--ice-2);
   --ink: var(--graphite);
@@ -37,7 +41,7 @@
 
   --shadow-sm: 0 1px 2px #1d1d1f0a, 0 2px 8px #1d1d1f08;
   --shadow: 0 2px 4px #1d1d1f0a, 0 16px 32px -14px #1d1d1f26;
-  --shadow-red: 0 12px 26px -12px #e4002b99;
+  --shadow-red: 0 12px 26px -12px #c8102e88;
   --display: "Bricolage Grotesque Variable", "Manrope Variable", system-ui, sans-serif;
   --sidebar: 252px;
   --frame-gap: 0px;
@@ -51,7 +55,7 @@ body {
   color: var(--ink);
 }
 ::selection {
-  background: #e4002b26;
+  background: #c8102e26;
 }
 :focus-visible {
   outline: 2.5px solid var(--coke);
@@ -84,8 +88,8 @@ body {
   padding: 30px 18px 0;
   color: #fff;
   background:
-    radial-gradient(120% 60% at 0% 0%, #ff2b4540 0%, transparent 60%),
-    linear-gradient(180deg, var(--coke) 0%, #d0001f 100%);
+    radial-gradient(120% 60% at 0% 0%, #e0304a40 0%, transparent 60%),
+    linear-gradient(180deg, var(--sidebar-top) 0%, var(--sidebar-bottom) 100%);
   box-shadow: inset -1px 0 0 #0000001f;
   overflow-x: hidden;
 }
@@ -412,7 +416,7 @@ body {
 }
 .stat-dark {
   background:
-    radial-gradient(120% 120% at 100% 0%, #ff2b4555 0%, transparent 55%),
+    radial-gradient(120% 120% at 100% 0%, #e0304a55 0%, transparent 55%),
     linear-gradient(150deg, var(--coke) 0%, var(--coke-deep) 100%);
   border-color: var(--coke-deep);
 }
@@ -436,7 +440,7 @@ body {
 /* ---------- Revisões pendentes (início) ---------- */
 .pending-item {
   color: var(--ink);
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   box-shadow: none;
 }
@@ -451,7 +455,7 @@ body {
   background: conic-gradient(var(--coke) var(--p), var(--ice-2) 0);
 }
 .pending-ring > span {
-  background: #fff;
+  background: var(--card);
   color: var(--ink);
 }
 .pending-action {
@@ -462,7 +466,7 @@ body {
 /* ---------- Importar: painel escuro vira faixa vermelha ---------- */
 .import-aside {
   background:
-    radial-gradient(120% 60% at 100% 0%, #ff2b4540 0%, transparent 60%),
+    radial-gradient(120% 60% at 100% 0%, #e0304a40 0%, transparent 60%),
     linear-gradient(170deg, var(--coke) 0%, var(--coke-deep) 100%);
   color: #fff;
   border: 0;
@@ -542,8 +546,8 @@ body {
   overflow: hidden;
   cursor: pointer;
   background:
-    radial-gradient(70% 60% at 50% 35%, #ff2b45 0%, transparent 70%),
-    linear-gradient(180deg, var(--coke) 0%, #c8001f 100%);
+    radial-gradient(70% 60% at 50% 35%, #e0304a 0%, transparent 70%),
+    linear-gradient(180deg, var(--coke) 0%, #a50e26 100%);
   color: #fff;
   transition:
     clip-path 0.6s cubic-bezier(0.7, 0, 0.2, 1),
@@ -600,7 +604,7 @@ body {
 }
 .splash-cap circle {
   fill: none;
-  stroke: #e4002b;
+  stroke: #c8102e;
   stroke-width: 2.4;
 }
 @keyframes splash-cap {
@@ -741,13 +745,13 @@ body {
 .chip,
 .field select,
 .period-title select {
-  background-color: #fff;
+  background-color: var(--card);
   border: 1.5px solid var(--line-strong);
   color: var(--ink);
 }
 .chip:hover,
 .field select:hover {
-  background-color: #fff;
+  background-color: var(--card);
   border-color: var(--ink-soft);
 }
 .chip input::placeholder,
@@ -758,7 +762,7 @@ body {
 .field select:focus,
 .search-box:focus-within {
   border-color: var(--coke);
-  box-shadow: 0 0 0 4px #e4002b14;
+  box-shadow: 0 0 0 4px #c8102e14;
 }
 .sort-control select {
   color: var(--ink);
@@ -820,14 +824,14 @@ body {
   overflow: visible;
 }
 .bottle-glass {
-  fill: #fde1e6;
+  fill: #f6d9df;
 }
 .bottle-liquid {
   fill: var(--coke);
   animation: bottle-wave 1.6s linear infinite;
 }
 .bottle-liquid.back {
-  fill: #ff7d91;
+  fill: #e8768a;
   animation-duration: 2.6s;
   animation-direction: reverse;
   transform: translateY(-26px);
@@ -846,7 +850,7 @@ body {
   fill: #ffffffaa;
 }
 .bottle-cola .bottle-bubble {
-  fill: #e4002b38;
+  fill: #c8102e38;
 }
 .bottle-loop .bottle-level {
   animation: bottle-loop 2.6s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
@@ -924,8 +928,8 @@ body {
   width: var(--s);
   height: var(--s);
   border-radius: 50%;
-  border: 1.5px solid #e4002bcc;
-  background: radial-gradient(circle at 35% 30%, #ffffffee 0 18%, #ff2b4526 40%);
+  border: 1.5px solid #c8102ecc;
+  background: radial-gradient(circle at 35% 30%, #ffffffee 0 18%, #e0304a26 40%);
   opacity: 0;
   animation: fizz-up var(--d) cubic-bezier(0.2, 0.7, 0.4, 1) var(--w) forwards;
 }
@@ -950,7 +954,7 @@ body {
   width: 52px;
   height: 52px;
   pointer-events: none;
-  filter: drop-shadow(0 8px 12px #8a001840);
+  filter: drop-shadow(0 8px 12px #7a0a1c40);
   animation: cap-pop 1.4s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
 }
 .cap-pop path {
@@ -1048,7 +1052,7 @@ body {
   height: 0;
   z-index: -1;
   border-radius: 45% 55% 0 0 / 22px 22px 0 0;
-  background: linear-gradient(180deg, #ffd5dc 0%, #ffe9ed 100%);
+  background: linear-gradient(180deg, #f3d1d8 0%, #f9e8ec 100%);
   transition: height 0.6s cubic-bezier(0.3, 0.7, 0.3, 1);
 }
 .drop-zone.over::after {
@@ -1099,8 +1103,8 @@ html.splash-pending body::after {
   inset: 0;
   z-index: 999;
   background:
-    radial-gradient(70% 60% at 50% 35%, #ff2b45 0%, transparent 70%),
-    linear-gradient(180deg, #e4002b 0%, #c8001f 100%);
+    radial-gradient(70% 60% at 50% 35%, #e0304a 0%, transparent 70%),
+    linear-gradient(180deg, #c8102e 0%, #a50e26 100%);
   /* Segurança: se o script não rodar, a cobertura some sozinha. */
   animation: cover-out 0.3s ease 4s forwards;
 }
@@ -1109,4 +1113,172 @@ html.splash-pending body::after {
     opacity: 0;
     visibility: hidden;
   }
+}
+
+/* =========================================================
+   Modo escuro — html[data-theme="dark"]
+   Fundo grafite (não preto puro), cartões um tom acima, vermelho um pouco mais claro
+   para manter o contraste. A faixa vermelha e a onda continuam, mais profundas.
+   ========================================================= */
+.ribbon .ribbon-front {
+  fill: var(--canvas);
+}
+.sidebar-ribbon .ribbon-front {
+  fill: var(--sidebar-foot);
+}
+.sidebar-footer {
+  background: var(--sidebar-foot);
+}
+.topbar {
+  background: color-mix(in srgb, var(--canvas) 90%, transparent);
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --coke: #d4243f;
+  --coke-deep: #a8162e;
+  --coke-dark: #7a0f22;
+  --ice: #0e0e11;
+  --ice-2: #1d1d22;
+  --graphite: #34343c;
+  --canvas: #141418;
+  --card: #1b1b20;
+  --surface: #222228;
+  --surface-2: #2a2a31;
+  --ink: #f0f0f3;
+  --ink-2: #e2e2e7;
+  --ink-soft: #b2b4bc;
+  --muted: #8b8e97;
+  --line: #2b2c33;
+  --line-strong: #3a3c44;
+  --red-soft: #3a1219;
+  --red-line: #6b1f2c;
+  --green: #3cbf86;
+  --green-soft: #13291f;
+  --amber: #e2a43a;
+  --amber-soft: #2e2510;
+  --blue: #6f9cf0;
+  --blue-soft: #15223a;
+  --sidebar-top: #a8162e;
+  --sidebar-bottom: #6e0d1f;
+  --sidebar-foot: #141418;
+  --shadow-sm: 0 1px 2px #00000040;
+  --shadow: 0 2px 4px #00000040, 0 16px 32px -14px #00000099;
+  --shadow-red: 0 12px 26px -14px #d4243f88;
+}
+html[data-theme="dark"] body {
+  background: var(--ice);
+  color: var(--ink);
+}
+html[data-theme="dark"] .kb {
+  --kb-ok: #3cbf86;
+  --kb-ok-soft: #13291f;
+  --kb-warn: #e2b23a;
+  --kb-warn-soft: #2e2510;
+  --kb-bad: #e0445d;
+  --kb-bad-soft: #3a1219;
+  --kb-man: #6f9cf0;
+  --kb-man-soft: #15223a;
+  --kb-done: #6c7276;
+  --kb-bg: var(--surface);
+  --kb-card: var(--card);
+  --kb-line: var(--line);
+  --kb-text: var(--ink);
+  --kb-soft: var(--ink-soft);
+}
+html[data-theme="dark"] .kb .tone-done {
+  --ts: #23252a;
+}
+/* Botões e pílulas brancos sobre o vermelho continuam claros só na barra lateral */
+html[data-theme="dark"] .import-nav,
+html[data-theme="dark"] .nav-link.active {
+  background: #f4f4f6;
+}
+html[data-theme="dark"] input,
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea {
+  background-color: var(--surface);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+html[data-theme="dark"] ::placeholder {
+  color: var(--muted);
+}
+html[data-theme="dark"] .profile-mark {
+  box-shadow: 0 0 0 3px var(--canvas), 0 0 0 5px var(--coke);
+}
+html[data-theme="dark"] .bottle-glass {
+  fill: #3a1a21;
+}
+html[data-theme="dark"] .drop-zone {
+  background: var(--card);
+}
+html[data-theme="dark"] .drop-zone::after {
+  background: linear-gradient(180deg, #4a1822 0%, #2c1218 100%);
+}
+html[data-theme="dark"] .fizz-burst i {
+  border-color: #ff8095cc;
+  background: radial-gradient(circle at 35% 30%, #ffffffcc 0 18%, #ff809526 40%);
+}
+
+/* Troca de tema suave (só quando a pessoa clica) */
+html.theme-switching,
+html.theme-switching * {
+  transition:
+    background-color 0.35s ease,
+    border-color 0.35s ease,
+    color 0.35s ease,
+    fill 0.35s ease !important;
+}
+
+/* Botão do tema no topo */
+.theme-toggle {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink);
+  overflow: hidden;
+  transition: background 0.2s;
+}
+.theme-toggle:hover {
+  background: var(--surface-2);
+}
+.theme-toggle > span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  transition:
+    transform 0.5s cubic-bezier(0.3, 1.4, 0.4, 1),
+    opacity 0.3s;
+}
+.theme-toggle .t-sun {
+  transform: translateY(26px) rotate(-90deg);
+  opacity: 0;
+}
+html[data-theme="dark"] .theme-toggle .t-sun {
+  transform: none;
+  opacity: 1;
+}
+html[data-theme="dark"] .theme-toggle .t-moon {
+  transform: translateY(-26px) rotate(90deg);
+  opacity: 0;
+}
+
+/* Quadrantes do crítico-crônico (gráfico) */
+:root {
+  --q-critico: #fdf6ea;
+  --q-cc: #fbeef0;
+  --q-conforto: #eef8f3;
+  --q-cronico: #eef3fc;
+}
+html[data-theme="dark"] {
+  --q-critico: #2a2312;
+  --q-cc: #34161c;
+  --q-conforto: #13261d;
+  --q-cronico: #16213a;
 }

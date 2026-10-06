@@ -43,12 +43,12 @@
   width: 40px;
   height: auto;
   flex-shrink: 0;
-  filter: drop-shadow(0 0 14px #e4002b66);
+  filter: drop-shadow(0 0 14px #c8102e66);
   transition: transform 0.4s var(--ease), filter 0.4s;
 }
 .brand:hover .brand-logo {
   transform: rotate(-6deg) scale(1.05);
-  filter: drop-shadow(0 0 22px #e4002ba0);
+  filter: drop-shadow(0 0 22px #c8102ea0);
 }
 .brand-text {
   display: flex;
@@ -91,7 +91,7 @@
   line-height: 0.9;
   color: var(--red);
   letter-spacing: 0.5px;
-  text-shadow: 0 6px 22px #e4002b55;
+  text-shadow: 0 6px 22px #c8102e55;
   transition: transform 0.4s var(--ease);
   transform-origin: left center;
 }
@@ -138,7 +138,7 @@
   width: 46px;
   height: 46px;
   border-radius: 14px;
-  background: linear-gradient(145deg, #ff2b45, var(--red) 55%, var(--red-strong));
+  background: linear-gradient(145deg, #e0304a, var(--red) 55%, var(--red-strong));
   box-shadow: var(--shadow-red), inset 0 1px 0 #ffffff40;
   transition: transform 0.35s var(--ease);
 }
@@ -150,8 +150,8 @@
   transform: rotate(90deg);
 }
 .import-nav.active {
-  border-color: #e4002b66;
-  background: #e4002b14;
+  border-color: #c8102e66;
+  background: #c8102e14;
 }
 .nav-section-label {
   font-size: 9.5px;
@@ -198,7 +198,7 @@
   border-radius: 20px;
   padding: 18px 16px;
   background:
-    radial-gradient(120% 90% at 100% 0%, #e4002b40 0%, transparent 60%),
+    radial-gradient(120% 90% at 100% 0%, #c8102e40 0%, transparent 60%),
     #ffffff07;
   border: 1px solid #ffffff10;
   overflow: hidden;
@@ -210,7 +210,7 @@
   height: 34px;
   border-radius: 11px;
   background: #ffffff10;
-  color: #ff6670;
+  color: #de5a6e;
   margin-bottom: 14px;
 }
 .sidebar-tip b {
@@ -416,7 +416,7 @@
 .btn.primary:hover:not(:disabled) {
   background: var(--red-strong);
   transform: translateY(-1px);
-  box-shadow: 0 14px 28px -10px #e4002ba0;
+  box-shadow: 0 14px 28px -10px #c8102ea0;
 }
 .btn.primary svg {
   transition: transform 0.25s var(--ease);
@@ -425,7 +425,7 @@
   transform: translateX(2px);
 }
 .btn.secondary {
-  background: #fff;
+  background: var(--card);
   border: 1.5px solid var(--line-strong);
   color: var(--ink-2);
 }
@@ -479,7 +479,7 @@
 }
 .stat {
   position: relative;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 22px;
   padding: 20px 22px;
@@ -535,7 +535,7 @@
 }
 .stat-dark {
   background:
-    radial-gradient(140% 120% at 100% 0%, #e4002b38 0%, transparent 55%),
+    radial-gradient(140% 120% at 100% 0%, #c8102e38 0%, transparent 55%),
     linear-gradient(150deg, #26272b 0%, #141416 100%);
   border-color: #000;
   color: #fff;
@@ -565,7 +565,7 @@
   color: #a3a8b0;
 }
 .stat-red {
-  background: linear-gradient(150deg, #ff2b45, var(--red-strong));
+  background: linear-gradient(150deg, #e0304a, var(--red-strong));
   border-color: var(--red-strong);
   color: #fff;
 }
@@ -623,7 +623,7 @@
   width: 100%;
   color: #fff;
   background:
-    radial-gradient(90% 140% at 100% 0%, #e4002b33 0%, transparent 60%),
+    radial-gradient(90% 140% at 100% 0%, #c8102e33 0%, transparent 60%),
     linear-gradient(150deg, #26272b, #111010);
   box-shadow: var(--shadow);
   transition:
@@ -678,7 +678,7 @@
   gap: 8px;
   padding: 9px 15px;
   border-radius: 999px;
-  background: #fff;
+  background: var(--card);
   color: var(--ink);
   font-size: 12px;
   font-weight: 700;
@@ -731,14 +731,14 @@
 }
 .search-box:focus-within {
   border-color: var(--red);
-  background: #fff;
-  box-shadow: 0 0 0 4px #e4002b14;
+  background: var(--card);
+  box-shadow: 0 0 0 4px #c8102e14;
 }
 .search-box input::placeholder {
   color: #a8a19d;
 }
 .chip {
-  background: #fff;
+  background: var(--card);
   border: 1.5px solid var(--red);
   color: var(--red);
 }
@@ -746,7 +746,7 @@
   background: var(--red-soft);
 }
 .chip input::placeholder {
-  color: #e4002b99;
+  color: #c8102e99;
 }
 .home-filters > .search-box {
   flex: 1;
@@ -801,7 +801,7 @@
   color: var(--ink);
 }
 .segmented button.on {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
   box-shadow: 0 4px 10px -4px #1d1d1f80;
 }
@@ -878,7 +878,7 @@
   background: repeating-linear-gradient(
     -45deg,
     var(--surface) 0 10px,
-    #fafbfc 10px 20px
+    var(--card) 10px 20px
   );
 }
 .folder-grid {
@@ -918,7 +918,7 @@
   position: absolute;
   inset: 12px 0 0;
   border-radius: 6px 14px 14px 14px;
-  background: linear-gradient(180deg, #9e001b, var(--red-deep));
+  background: linear-gradient(180deg, #8c0b20, var(--red-deep));
 }
 .folder-back::before {
   content: "";
@@ -928,7 +928,7 @@
   width: 52px;
   height: 18px;
   border-radius: 8px 10px 0 0;
-  background: #9e001b;
+  background: #8c0b20;
   clip-path: polygon(0 0, 78% 0, 100% 100%, 0 100%);
 }
 .folder-paper {
@@ -938,7 +938,7 @@
   top: 18px;
   height: 64px;
   border-radius: 7px;
-  background: #fff;
+  background: var(--card);
   box-shadow: 0 -1px 4px #00000026;
   padding: 7px 8px 6px;
   display: flex;
@@ -949,7 +949,7 @@
   left: 16px;
   right: 6px;
   top: 22px;
-  background: #f7e7e9;
+  background: var(--red-soft);
   z-index: 0;
   transform: rotate(4deg);
 }
@@ -979,10 +979,10 @@
   border-radius: 12px 12px 14px 14px;
   background:
     linear-gradient(180deg, #ffffff2e 0%, #ffffff00 38%),
-    linear-gradient(160deg, #ff2b45 0%, var(--red) 45%, #c8001f 100%);
+    linear-gradient(160deg, #e0304a 0%, var(--red) 45%, #a50e26 100%);
   box-shadow:
     inset 0 1px 0 #ffffff55,
-    0 10px 20px -8px #b8001f99;
+    0 10px 20px -8px #a00d2599;
   transform-origin: 50% 100%;
   transition:
     transform 0.45s var(--ease),
@@ -1047,7 +1047,7 @@
   transform: rotateX(-24deg);
   box-shadow:
     inset 0 1px 0 #ffffff55,
-    0 18px 26px -10px #b8001fbb;
+    0 18px 26px -10px #a00d25bb;
 }
 .folder-card:hover .folder-front::after {
   transform: translateX(120%);
@@ -1163,8 +1163,8 @@
   height: 62px;
   border-radius: 6px 12px 12px 12px;
   margin-top: 10px;
-  background: linear-gradient(160deg, #ff2b45, var(--red) 45%, #c8001f);
-  box-shadow: 0 14px 26px -12px #b8001f;
+  background: linear-gradient(160deg, #e0304a, var(--red) 45%, #a50e26);
+  box-shadow: 0 14px 26px -12px #a00d25;
 }
 .empty-folder::before {
   content: "";
@@ -1174,7 +1174,7 @@
   width: 34px;
   height: 9px;
   border-radius: 6px 8px 0 0;
-  background: #9e001b;
+  background: #8c0b20;
 }
 .empty-state h3 {
   font-size: 20px;
@@ -1267,7 +1267,7 @@
   align-items: start;
 }
 .panel {
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   overflow: hidden;
@@ -1298,7 +1298,7 @@
   place-items: center;
   width: 44px;
   height: 44px;
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
   font-size: 13px;
   font-weight: 800;
@@ -1344,8 +1344,8 @@
   margin-top: 10px;
   color: #fff;
   border-radius: 8px 16px 16px 16px;
-  background: linear-gradient(160deg, #ff2b45, var(--red) 45%, #c8001f);
-  box-shadow: 0 18px 30px -14px #b8001f;
+  background: linear-gradient(160deg, #e0304a, var(--red) 45%, #a50e26);
+  box-shadow: 0 18px 30px -14px #a00d25;
   transition: transform 0.35s var(--ease);
 }
 .upload-glyph::before {
@@ -1356,7 +1356,7 @@
   width: 38px;
   height: 10px;
   border-radius: 7px 9px 0 0;
-  background: #9e001b;
+  background: #8c0b20;
 }
 .drop-zone:hover .upload-glyph,
 .drop-zone.over .upload-glyph {
@@ -1382,7 +1382,7 @@
   padding: 6px 12px;
   border-radius: 999px;
   border: 1.5px solid var(--red-line);
-  background: #fff;
+  background: var(--card);
 }
 .import-submit {
   width: 100%;
@@ -1406,10 +1406,10 @@
   color: #fff;
 }
 .import-aside .eyebrow {
-  color: #ff5a64;
+  color: #d9475d;
 }
 .import-aside .eyebrow::before {
-  background: #ff5a64;
+  background: #d9475d;
 }
 .process-list {
   padding: 0;
@@ -1430,7 +1430,7 @@
   left: 16px;
   width: 2px;
   border-radius: 2px;
-  background: linear-gradient(#e4002b, #e4002b00);
+  background: linear-gradient(#c8102e, #c8102e00);
 }
 .process-list li:last-child:before {
   display: none;
@@ -1463,7 +1463,7 @@
   border: 1px solid #ffffff12;
   border-radius: 18px;
   padding: 18px;
-  color: #ff6670;
+  color: #de5a6e;
 }
 .required-columns h3 {
   font-size: 13.5px;
@@ -1500,7 +1500,7 @@
 
 /* ---------- Painel de filtros (dashboard/comparar) ---------- */
 .filter-panel {
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   margin-bottom: 26px;
@@ -1556,7 +1556,7 @@
 .dirty-dot {
   width: 7px;
   height: 7px;
-  background: #fff;
+  background: var(--card);
   border-radius: 50%;
   animation: pulse-white 1.6s infinite;
 }
@@ -1569,7 +1569,7 @@
   margin-bottom: 26px;
 }
 .chart-panel {
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   overflow: hidden;
@@ -1621,7 +1621,7 @@
     color 0.15s;
 }
 .export-btn:hover:not(:disabled) {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .chart-actions .icon-btn {
@@ -1721,7 +1721,7 @@ th {
   font-size: 12px;
   color: var(--muted);
   font-weight: 600;
-  background: #f8f9fb;
+  background: var(--surface);
   padding: 13px 24px;
   border-top: 1px solid #edf0f3;
   border-bottom: 1px solid #edf0f3;
@@ -1742,7 +1742,7 @@ tr:last-child td {
   border-bottom: 0;
 }
 tbody tr:hover td {
-  background: #fdf6f7;
+  background: var(--red-soft);
 }
 .category {
   display: inline-flex;
@@ -1834,7 +1834,7 @@ tbody tr:hover td {
   flex-shrink: 0;
   border-radius: 11px;
   color: #fff;
-  background: var(--ink);
+  background: var(--graphite);
   font-size: 14px;
   font-weight: 800;
 }
@@ -1857,7 +1857,7 @@ tbody tr:hover td {
   color: var(--red);
 }
 .comparison-periods .segmented {
-  background: #fff;
+  background: var(--card);
 }
 .versus {
   align-self: center;
@@ -1867,7 +1867,7 @@ tbody tr:hover td {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
   font-size: 13px;
   font-weight: 800;
@@ -1886,7 +1886,7 @@ tbody tr:hover td {
   font-size: 13px;
   padding: 7px 13px;
   border-radius: 999px;
-  background: #fff;
+  background: var(--card);
 }
 .auto-period small:empty {
   display: none;
@@ -1931,7 +1931,7 @@ tbody tr:hover td {
   margin-bottom: 32px;
 }
 .compare-summary > section {
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   padding: 22px;
@@ -1940,7 +1940,7 @@ tbody tr:hover td {
 }
 .compare-summary > section.current {
   background:
-    radial-gradient(120% 120% at 100% 0%, #e4002b40 0%, transparent 55%),
+    radial-gradient(120% 120% at 100% 0%, #c8102e40 0%, transparent 55%),
     linear-gradient(150deg, #26272b, #141416);
   border-color: #000;
   color: #fff;
@@ -2059,7 +2059,7 @@ tbody tr:hover td {
   font-size: 12px;
   line-height: 1.7;
   padding: 14px 24px;
-  background: #f8f9fb;
+  background: var(--surface);
   border-top: 1px solid #edf0f3;
   color: var(--muted);
 }
@@ -2076,7 +2076,7 @@ tbody tr:hover td {
   gap: 16px;
   justify-content: space-between;
   align-items: center;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 22px;
   padding: 12px 14px 12px 12px;
@@ -2092,7 +2092,7 @@ tbody tr:hover td {
 .file-type {
   width: 46px;
   height: 46px;
-  background: var(--ink);
+  background: var(--graphite);
   display: grid;
   place-items: center;
   border-radius: 14px;
@@ -2122,7 +2122,7 @@ tbody tr:hover td {
   border-radius: 50%;
 }
 .toolbar-actions > .icon-btn:hover {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .toolbar-actions .search-box {
@@ -2140,7 +2140,7 @@ tbody tr:hover td {
 .bell-btn {
   width: 50px;
   height: 50px;
-  background: var(--ink);
+  background: var(--graphite);
   border-radius: 16px;
   display: grid;
   place-items: center;
@@ -2175,14 +2175,14 @@ tbody tr:hover td {
   animation: pop 0.4s var(--ease) both;
 }
 .bell-btn.active .notification-badge {
-  background: var(--ink);
+  background: var(--graphite);
 }
 .notification-menu {
   position: absolute;
   right: 0;
   top: 60px;
   width: 360px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   box-shadow: 0 24px 60px -12px #1d1d1f40;
   border-radius: 22px;
@@ -2311,7 +2311,7 @@ tbody tr:hover td {
   background: var(--red);
 }
 .kanban-column.validated {
-  background: #eff7f2;
+  background: var(--green-soft);
 }
 .kanban-column.validated::before {
   background: var(--green);
@@ -2348,7 +2348,7 @@ tbody tr:hover td {
   font-weight: 800;
   font-size: 11px;
   color: #fff;
-  background: var(--ink);
+  background: var(--graphite);
   min-width: 22px;
   text-align: center;
   padding: 3px 7px;
@@ -2373,7 +2373,7 @@ tbody tr:hover td {
     color 0.2s;
 }
 .validate-column:hover:not(:disabled) {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .validate-column.complete {
@@ -2387,7 +2387,7 @@ tbody tr:hover td {
   gap: 10px;
 }
 .kanban-card {
-  background: #fff;
+  background: var(--card);
   border: 1px solid transparent;
   border-radius: 18px;
   padding: 14px;
@@ -2443,7 +2443,7 @@ tbody tr:hover td {
   background: var(--surface);
 }
 .inspect-card:hover {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .kanban-card:hover .inspect-card,
@@ -2660,7 +2660,7 @@ tbody tr:hover td {
   display: block;
   height: 100%;
   border-radius: 9px;
-  background: linear-gradient(90deg, var(--red), #ff5a64);
+  background: linear-gradient(90deg, var(--red), #d9475d);
   transition: width 0.6s var(--ease);
 }
 .next-step {
@@ -2708,7 +2708,7 @@ tbody tr:hover td {
   animation: fade 0.2s ease both;
 }
 .modal {
-  background: #fff;
+  background: var(--card);
   border-radius: 28px;
   width: min(520px, 100%);
   max-height: 90vh;
@@ -3015,7 +3015,7 @@ tbody tr:hover td {
   justify-content: flex-end;
 }
 .btn.excel {
-  background: #fff;
+  background: var(--card);
   color: var(--green);
   border: 1.5px solid var(--green);
 }
@@ -3081,7 +3081,7 @@ tbody tr:hover td {
   font-size: 12.5px;
   font-weight: 700;
   color: var(--ink-soft);
-  background: #fff;
+  background: var(--card);
   border: 1.5px solid var(--line-strong);
   transition:
     background 0.18s,
@@ -3115,14 +3115,14 @@ tbody tr:hover td {
   color: #fff;
 }
 .cat-chip.on i {
-  background: #fff;
+  background: var(--card);
 }
 .cat-chip.on b {
   background: #ffffff33;
   color: #fff;
 }
 .cat-chip.all.on {
-  background: var(--ink);
+  background: var(--graphite);
   border-color: var(--ink);
 }
 .cat-chip.file.on {
@@ -3160,7 +3160,7 @@ tbody tr:hover td {
   margin-left: 8px;
   padding: 2px 7px;
   border-radius: 999px;
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
   font-size: 9px;
   letter-spacing: 1px;
@@ -3270,7 +3270,7 @@ tbody tr:hover td {
 .segmented.wrap {
   flex-wrap: wrap;
   border-radius: 18px;
-  background: #fff;
+  background: var(--card);
 }
 .b-inline {
   display: flex;
@@ -3339,7 +3339,7 @@ tbody tr:hover td {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--card);
   box-shadow: 0 1px 3px #0003;
   transition: transform 0.25s var(--ease);
 }
@@ -3366,7 +3366,7 @@ tbody tr:hover td {
   border-radius: 999px;
   font-size: 12px;
   font-weight: 700;
-  background: #fff;
+  background: var(--card);
   border: 1.5px solid var(--line-strong);
   color: var(--ink-soft);
   transition:
@@ -3378,8 +3378,8 @@ tbody tr:hover td {
   border-color: var(--ink);
 }
 .kpi-pick.on {
-  background: var(--ink);
-  border-color: var(--ink);
+  background: var(--graphite);
+  border-color: var(--graphite);
   color: #fff;
 }
 .builder-preview {
@@ -3398,7 +3398,7 @@ tbody tr:hover td {
   border: 1px solid var(--line);
   border-radius: 20px;
   padding: 14px 10px 6px;
-  background: #fff;
+  background: var(--card);
 }
 .kpi-preview {
   display: grid;
@@ -3423,7 +3423,7 @@ tbody tr:hover td {
   height: 84px;
   border-radius: 16px;
   border: 2px dashed var(--red-line);
-  background: #fffafa;
+  background: var(--red-soft);
   font-size: 12.5px;
   font-weight: 800;
   color: var(--red);
@@ -3491,7 +3491,7 @@ tbody tr:hover td {
 }
 .cell-input:hover {
   border-color: var(--line-strong);
-  background: #fff;
+  background: var(--card);
 }
 .cell-input.num {
   min-width: 80px;
@@ -3537,7 +3537,7 @@ tbody tr:hover td {
   z-index: 15;
   padding: 8px;
   border-radius: 999px;
-  background: #fff;
+  background: var(--card);
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--line);
 }
@@ -3547,7 +3547,7 @@ tbody tr:hover td {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
   flex-shrink: 0;
   transition:
@@ -3612,7 +3612,7 @@ tbody tr:hover td {
 }
 .board-rail:hover .rail-thumb,
 .board-rail.dragging .rail-thumb {
-  background: #e4002b2e;
+  background: #c8102e2e;
   border-color: var(--red);
   color: var(--red);
 }
@@ -3641,7 +3641,7 @@ tbody tr:hover td {
     color 0.15s;
 }
 .mini-arrow:hover:not(:disabled) {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .mini-arrow:disabled {
@@ -3654,7 +3654,7 @@ tbody tr:hover td {
   animation: flash 1.3s var(--ease);
 }
 .btn.confirm-all {
-  background: #fff;
+  background: var(--card);
   color: var(--ink);
   border: 0;
   min-height: 48px;
@@ -3740,7 +3740,7 @@ tbody tr:hover td {
 
 /* ---------- Comparar ---------- */
 .cmp-setup {
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   padding: 20px;
@@ -3796,12 +3796,12 @@ tbody tr:hover td {
   color: var(--muted);
 }
 .preset.on {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
   border-color: var(--ink);
 }
 .preset.on small {
-  color: #ff8a92;
+  color: #e57f8f;
 }
 .period-pair {
   position: relative;
@@ -3866,7 +3866,7 @@ tbody tr:hover td {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
   border: 4px solid #fff;
 }
@@ -3898,7 +3898,7 @@ tbody tr:hover td {
 }
 .verdict.worse {
   background:
-    radial-gradient(120% 140% at 100% 0%, #ff4b57 0%, transparent 60%),
+    radial-gradient(120% 140% at 100% 0%, #d43c52 0%, transparent 60%),
     linear-gradient(150deg, var(--red), var(--red-deep));
 }
 .verdict.better {
@@ -3940,10 +3940,10 @@ tbody tr:hover td {
 .verdict .btn.excel {
   border-color: #fff;
   color: var(--ink);
-  background: #fff;
+  background: var(--card);
 }
 .verdict .btn.excel:hover {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
   border-color: var(--ink);
 }
@@ -3954,7 +3954,7 @@ tbody tr:hover td {
   margin-bottom: 24px;
 }
 .kc {
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 22px;
   padding: 18px 20px;
@@ -4107,7 +4107,7 @@ tbody tr:hover td {
 .div-half.right .bar {
   justify-content: flex-end;
   border-radius: 0 8px 8px 0;
-  background: linear-gradient(90deg, var(--red), #ff4b57);
+  background: linear-gradient(90deg, var(--red), #d43c52);
 }
 .div-half .bar em {
   font-style: normal;
@@ -4153,10 +4153,10 @@ tbody tr:hover td {
   font-size: 11px;
   padding: 1px 7px;
   border-radius: 999px;
-  background: #fff;
+  background: var(--card);
 }
 .change-tabs button.on {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .change-tabs button.on.t-up {
@@ -4182,7 +4182,7 @@ tbody tr:hover td {
   60% {
     box-shadow:
       0 0 0 3px var(--red),
-      0 12px 26px -8px #e4002b80;
+      0 12px 26px -8px #c8102e80;
   }
 }
 @keyframes grow-x {
@@ -4217,7 +4217,7 @@ tbody tr:hover td {
     display: block;
     width: 18px;
     height: auto;
-    filter: drop-shadow(0 0 6px #e4002b66);
+    filter: drop-shadow(0 0 6px #c8102e66);
   }
   .heading-actions {
     justify-content: flex-start;
@@ -4325,7 +4325,7 @@ tbody tr:hover td {
   height: 34px;
 }
 .doc-table tbody tr:nth-child(even) td {
-  background: #fcfbfa;
+  background: var(--surface);
 }
 .class-chip {
   position: relative;
@@ -4337,7 +4337,7 @@ tbody tr:hover td {
   border-radius: 999px;
   font-size: 11.5px;
   font-weight: 800;
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
   cursor: pointer;
   transition: background 0.15s;
@@ -4357,7 +4357,7 @@ tbody tr:hover td {
   gap: 6px;
   padding: 10px;
   border-radius: 18px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   box-shadow: 0 24px 60px -12px #1d1d1f50;
   animation: drop 0.18s var(--ease) both;
@@ -4387,7 +4387,7 @@ tbody tr:hover td {
   background: var(--surface);
 }
 .class-picker-list button.on {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .class-picker-list p {
@@ -4446,12 +4446,12 @@ tbody tr:hover td {
 .unclassified-toggle b {
   padding: 3px 10px;
   border-radius: 999px;
-  background: #fff;
+  background: var(--card);
   color: var(--ink);
   font-size: 11.5px;
 }
 .unclassified-toggle.on {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .classified-ok {
@@ -4488,7 +4488,7 @@ tbody tr:hover td {
   gap: 3px;
   padding: 10px 14px;
   border-radius: 14px;
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .catalog-result small {
@@ -4496,7 +4496,7 @@ tbody tr:hover td {
   font-weight: 800;
   letter-spacing: 1px;
   text-transform: uppercase;
-  color: #ff8a92;
+  color: #e57f8f;
 }
 .catalog-result b {
   font-size: 14px;
@@ -4569,7 +4569,7 @@ tbody tr:hover td {
   color: #fff;
 }
 .kind-tag.componente {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .catalog-body {
@@ -4634,7 +4634,7 @@ tbody tr:hover td {
     color 0.15s;
 }
 .sel-btn:hover:not(:disabled) {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .sel-btn:disabled {
@@ -4652,8 +4652,8 @@ tbody tr:hover td {
 /* ---------- Identidade Coca-Cola na barra lateral ---------- */
 .sidebar {
   background:
-    radial-gradient(120% 34% at 10% 0%, #e4002b40 0%, transparent 70%),
-    radial-gradient(90% 30% at 100% 100%, #e4002b33 0%, transparent 70%),
+    radial-gradient(120% 34% at 10% 0%, #c8102e40 0%, transparent 70%),
+    radial-gradient(90% 30% at 100% 100%, #c8102e33 0%, transparent 70%),
     linear-gradient(180deg, #1d1a1a 0%, #120f0f 100%);
 }
 .sidebar > *:not(.fizz) {
@@ -4724,7 +4724,7 @@ tbody tr:hover td {
   width: 80px;
   height: 100px;
   border-radius: 50%;
-  background: radial-gradient(circle, #e4002b66 0%, transparent 70%);
+  background: radial-gradient(circle, #c8102e66 0%, transparent 70%);
   filter: blur(6px);
   z-index: -1;
   animation: glow 4s ease-in-out infinite;
@@ -4743,7 +4743,7 @@ tbody tr:hover td {
   border-radius: 50%;
   width: 48px;
   height: 48px;
-  filter: drop-shadow(0 8px 14px #e4002b80);
+  filter: drop-shadow(0 8px 14px #c8102e80);
 }
 .cap-shape {
   position: absolute;
@@ -4752,12 +4752,12 @@ tbody tr:hover td {
   height: 100%;
 }
 .cap-shape path {
-  fill: #e4002b;
-  stroke: #ff4b57;
+  fill: #c8102e;
+  stroke: #d43c52;
   stroke-width: 0.8;
 }
 .cap-shape circle {
-  fill: #c8001f;
+  fill: #a50e26;
   stroke: #ffffff33;
   stroke-width: 1;
 }
@@ -4778,12 +4778,12 @@ tbody tr:hover td {
   height: 8px;
   border-radius: 50%;
   background: var(--red);
-  box-shadow: 0 0 0 3px #e4002b33;
+  box-shadow: 0 0 0 3px #c8102e33;
 }
 .nav-link.active {
   background:
     linear-gradient(180deg, #ffffff26 0%, transparent 45%),
-    linear-gradient(160deg, #ff2b45, var(--red) 55%, #c8001f);
+    linear-gradient(160deg, #e0304a, var(--red) 55%, #a50e26);
 }
 /* Cartão "lata" */
 .sidebar-can {
@@ -4794,11 +4794,11 @@ tbody tr:hover td {
   color: #fff;
   background:
     linear-gradient(90deg, #ffffff1f 0%, transparent 18%, transparent 78%, #00000033 100%),
-    linear-gradient(160deg, #ff2b45 0%, var(--red) 45%, #9b0a14 100%);
+    linear-gradient(160deg, #e0304a 0%, var(--red) 45%, #9b0a14 100%);
   box-shadow:
     inset 0 1px 0 #ffffff55,
     inset 0 -10px 20px #0000002a,
-    0 18px 30px -16px #e4002ba0;
+    0 18px 30px -16px #c8102ea0;
 }
 .sidebar-can::before {
   /* aro metálico superior da lata */
@@ -4865,7 +4865,7 @@ tbody tr:hover td {
   margin-top: 12px;
   padding: 5px 10px;
   border-radius: 999px;
-  background: #ffffff;
+  background: var(--card);
   color: var(--red-strong);
   font-size: 10.5px;
   font-weight: 800;
@@ -5022,7 +5022,7 @@ tbody tr:hover td {
   }
   .mobile-toggle {
     display: inline-flex !important;
-    background: var(--ink);
+    background: var(--graphite);
     color: #fff;
     border-radius: 12px;
   }
@@ -5409,7 +5409,7 @@ tbody tr:hover td {
   padding: 6px 11px;
   border-radius: 999px;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--card);
   font-size: 12px;
   font-weight: 700;
   color: var(--ink-2);
@@ -5433,8 +5433,8 @@ tbody tr:hover td {
 .queue-tabs .q-manual i { background: var(--blue); }
 .queue-tabs button:hover { border-color: var(--line-strong); }
 .queue-tabs button.on {
-  background: var(--ink);
-  border-color: var(--ink);
+  background: var(--graphite);
+  border-color: var(--graphite);
   color: #fff;
 }
 .queue-tabs button.on span { background: #ffffff26; color: #fff; }
@@ -5528,7 +5528,7 @@ tbody tr:hover td {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
   font-size: 12px;
   font-weight: 800;
@@ -5612,7 +5612,7 @@ tbody tr:hover td {
   padding: 10px 13px;
   border-radius: 14px;
   border: 1.5px solid var(--line);
-  background: #fff;
+  background: var(--card);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
@@ -5642,7 +5642,7 @@ tbody tr:hover td {
 .count-option.on {
   border-color: var(--red);
   background: var(--red-soft);
-  box-shadow: 0 0 0 3px #e4002b14;
+  box-shadow: 0 0 0 3px #c8102e14;
 }
 .count-explain {
   grid-column: 2;
@@ -5691,7 +5691,7 @@ tbody tr:hover td {
 .drill-strategy span, .strategy-tools span {
   padding: 2px 9px;
   border-radius: 999px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   font-size: 11px;
   font-weight: 700;
@@ -5712,7 +5712,7 @@ tbody tr:hover td {
   border-radius: 16px;
   border: 1px solid var(--line);
   border-top: 4px solid var(--cat);
-  background: #fff;
+  background: var(--card);
 }
 .strategy-grid header { display: flex; align-items: center; gap: 7px; font-size: 12px; }
 .strategy-grid header i { width: 9px; height: 9px; border-radius: 50%; background: var(--cat); }
@@ -5749,7 +5749,7 @@ tbody tr:hover td {
 .auto-panel.clean {
   gap: 12px;
   padding: 14px 16px;
-  background: #fff;
+  background: var(--card);
 }
 .auto-top {
   display: flex;
@@ -5791,7 +5791,7 @@ tbody tr:hover td {
   background: var(--surface);
 }
 .auto-panel.clean .queue-tabs button.on {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .learn-chip {
@@ -5812,7 +5812,7 @@ tbody tr:hover td {
 .learn-chip .text-btn {
   padding: 3px 10px;
   border-radius: 999px;
-  background: #fff;
+  background: var(--card);
   color: var(--blue);
   font-weight: 800;
 }
@@ -5862,7 +5862,7 @@ tbody tr:hover td {
   gap: 10px;
   margin: 0 0 12px;
   padding: 8px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 999px;
   box-shadow: var(--shadow-sm);
@@ -5876,7 +5876,7 @@ tbody tr:hover td {
   background: var(--surface);
 }
 .review-bar .queue-tabs button.on {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .review-bar .queue-tabs button.on span {
@@ -5898,7 +5898,7 @@ tbody tr:hover td {
 }
 .more-menu > .icon-btn[aria-expanded="true"],
 .more-menu > .icon-btn:hover {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .more-menu-panel {
@@ -5910,7 +5910,7 @@ tbody tr:hover td {
   display: grid;
   gap: 2px;
   padding: 8px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -6006,7 +6006,7 @@ tbody tr:hover td {
 
 /* Bloco de uma máquina dentro da falha */
 .machine-group {
-  background: #fff;
+  background: var(--card);
   border-radius: 14px;
   box-shadow: var(--shadow-sm);
   cursor: grab;
@@ -6024,7 +6024,7 @@ tbody tr:hover td {
   box-shadow: inset 3px 0 0 #e89a1c, var(--shadow-sm);
 }
 .machine-group.done {
-  background: #f7fbf9;
+  background: var(--surface);
 }
 .machine-group.dragging {
   opacity: 0.4;
@@ -6096,8 +6096,8 @@ tbody tr:hover td {
   color: var(--ink-soft);
 }
 .mg-validate:hover:not(:disabled) {
-  background: var(--ink);
-  border-color: var(--ink);
+  background: var(--graphite);
+  border-color: var(--graphite);
   color: #fff;
 }
 .mg-validate.complete {
@@ -6174,7 +6174,7 @@ tbody tr:hover td {
   opacity: 1;
 }
 .mg-item-actions .icon-btn:hover {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .mg-check {
@@ -6288,7 +6288,7 @@ tbody tr:hover td {
 }
 .ml-split i:first-child {
   flex: none;
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .ml-bands table,
@@ -6416,7 +6416,7 @@ tbody tr:hover td {
   background: var(--surface);
 }
 .ml-filter button.on {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .ml-table {
@@ -6428,7 +6428,7 @@ tbody tr:hover td {
 .ml-table th {
   position: sticky;
   top: 0;
-  background: #fff;
+  background: var(--card);
   z-index: 1;
 }
 .ml-table th,
@@ -6592,10 +6592,10 @@ tbody tr:hover td {
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: #fff;
+  background: var(--card);
 }
 .ml-review-row.done {
-  background: #f7fbf9;
+  background: var(--surface);
 }
 .ml-review-row.draft-confirmar {
   border-color: var(--green);
@@ -6644,7 +6644,7 @@ tbody tr:hover td {
   color: var(--ink-soft);
 }
 .ml-alts button:hover {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
 }
 .ml-edit {
@@ -6700,7 +6700,7 @@ tbody tr:hover td {
   flex-wrap: wrap;
   padding: 10px 10px 10px 16px;
   border-radius: 999px;
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
   font-size: 12.5px;
   box-shadow: var(--shadow);
@@ -6721,7 +6721,7 @@ tbody tr:hover td {
   padding: 6px;
   display: flex;
   gap: 4px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 999px;
   box-shadow: var(--shadow-sm);
@@ -6752,7 +6752,7 @@ tbody tr:hover td {
   opacity: 0.45;
 }
 .pipe-steps li.current button {
-  background: var(--ink);
+  background: var(--graphite);
   color: #fff;
   opacity: 1;
 }
@@ -6853,7 +6853,7 @@ tbody tr:hover td {
   place-items: center;
   font-size: 11.5px;
   font-weight: 800;
-  background: #fff;
+  background: var(--card);
   border: 1.5px solid var(--line-strong);
 }
 .pipe-job li.done .pipe-dot {
@@ -6896,7 +6896,7 @@ tbody tr:hover td {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: #fff;
+  background: var(--card);
   font-size: 12px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--line);
@@ -6973,10 +6973,10 @@ tbody tr:hover td {
   width: 100%;
 }
 .pipe-row.is-correta {
-  background: #f3faf6;
+  background: var(--green-soft);
 }
 .pipe-row.is-errada {
-  background: #fff6f7;
+  background: var(--red-soft);
 }
 .pipe-row.saved-correta td:first-child {
   box-shadow: inset 3px 0 0 var(--green);

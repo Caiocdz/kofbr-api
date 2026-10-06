@@ -116,7 +116,7 @@ export type SheetReport = {
 export const CONFIDENCE: Record<Confidence, { label: string; hint: string; color: string }> = {
   alta: { label: "Confiança alta", hint: "Regra ou termo único do catálogo confirmado pelo aprendizado, ou relato já corrigido antes pelo analista.", color: "#1f8a63" },
   media: { label: "Confiança média", hint: "O relato cita mais de um item, teve correção de digitação ou o card mistura classes. Dê uma olhada.", color: "#e89a1c" },
-  baixa: { label: "Revisar", hint: "Nem o catálogo nem o aprendizado reconheceram. Precisa do analista.", color: "#e4002b" },
+  baixa: { label: "Revisar", hint: "Nem o catálogo nem o aprendizado reconheceram. Precisa do analista.", color: "#c8102e" },
   manual: { label: "Pelo analista", hint: "Classe escolhida por uma pessoa. Fica na memória para os próximos dias.", color: "#3a67c4" },
 };
 export type Board = Analysis & {
@@ -210,7 +210,7 @@ export const CATEGORIES = [
   "Conforto",
 ] as const;
 export const categoryColor: Record<string, string> = {
-  "Crítico-crônico": "#e4002b",
+  "Crítico-crônico": "#c8102e",
   Crítico: "#e89a1c",
   Crônico: "#3a67c4",
   Conforto: "#1f8a63",

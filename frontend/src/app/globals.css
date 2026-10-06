@@ -22,9 +22,9 @@
   --line-strong: #d5dae1;
 
   /* Marca */
-  --red: #e4002b;
-  --red-strong: #b8001f;
-  --red-deep: #8a0018;
+  --red: #c8102e;
+  --red-strong: #a00d25;
+  --red-deep: #7a0a1c;
   --red-soft: #fff0f2;
   --red-line: #f8c6cf;
 
@@ -41,7 +41,7 @@
   --radius-lg: 24px;
   --shadow-sm: 0 1px 2px #1d1d1f0a, 0 2px 6px #1d1d1f08;
   --shadow: 0 2px 4px #1d1d1f0a, 0 12px 28px -8px #1d1d1f1f;
-  --shadow-red: 0 10px 24px -8px #e4002b80;
+  --shadow-red: 0 10px 24px -8px #c8102e80;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --sidebar: 248px;
   --frame-gap: 12px;
@@ -125,7 +125,7 @@ input,
 select,
 textarea {
   color: var(--ink-2);
-  background: #fff;
+  background: var(--card);
   border: 1.5px solid var(--line-strong);
   border-radius: 12px;
   min-height: 40px;
@@ -144,7 +144,7 @@ input:focus,
 select:focus,
 textarea:focus {
   border-color: var(--red);
-  box-shadow: 0 0 0 4px #e4002b14;
+  box-shadow: 0 0 0 4px #c8102e14;
   outline: none;
 }
 select {
@@ -185,7 +185,7 @@ input[type="week"]::-webkit-calendar-picker-indicator {
   border: 0;
 }
 ::selection {
-  background: #ffd1d5;
+  background: var(--red-soft);
   color: var(--ink);
 }
 summary {

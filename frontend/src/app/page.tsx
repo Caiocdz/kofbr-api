@@ -26,6 +26,7 @@ import MlFill from "@/components/ml-fill";
 import Pipeline from "@/components/pipeline";
 import Desempenho from "@/components/desempenho";
 import { GargaloMark, Ribbon, Splash, useFizzOnActions } from "@/components/brand";
+import { ThemeToggle } from "@/components/theme";
 import { Dashboard, Compare } from "@/components/analysis";
 import "./home.css";
 import "./kanban.css";
@@ -86,7 +87,7 @@ function Folder({ day, index }: { day: Day; index: number }) {
                     width={slot * 0.64}
                     height={h}
                     rx="2"
-                    fill={i < 2 ? "#e4002b" : "#f6b8c3"}
+                    fill={i < 2 ? "#c8102e" : "#f6b8c3"}
                   />
                 );
               })}
@@ -553,6 +554,7 @@ export default function Page() {
             </div>
           </div>
           <div className="topbar-right">
+            <ThemeToggle />
             <span className={`connection-status ${error ? "offline" : ""}`}>
               <i />
               {error

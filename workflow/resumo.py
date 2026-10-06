@@ -161,7 +161,7 @@ def sheet_examples():
 
 # ----------------------------------------------------------------------------- planilha de saída
 
-RED = 'E4002B'
+RED = 'C8102E'
 
 
 def _variations(g, limit=3):
