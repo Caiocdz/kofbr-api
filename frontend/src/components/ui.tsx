@@ -1,4 +1,5 @@
 "use client";
+import { BottleFill, CountUp } from "./brand";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type React from "react";
 import { createPortal } from "react-dom";
@@ -290,8 +291,8 @@ export function ErrorNotice({
 export function Loading({ label = "Carregando dados…" }: { label?: string }) {
   return (
     <div className="loading-state" role="status">
-      <span className="spinner" />
-      {label}
+      <BottleFill size={56} />
+      <span>{label}</span>
     </div>
   );
 }
@@ -379,7 +380,9 @@ export function Stat({
           <Icon name={icon} size={17} />
         </span>
       </div>
-      <strong>{value}</strong>
+      <strong>
+        <CountUp value={value} />
+      </strong>
       <small>{sub}</small>
     </article>
   );

@@ -329,6 +329,7 @@ export function JackknifeChart({ spec }: { spec: JackSpec }) {
             cy={y(m.mttr)}
             r={spec.numbered ? 9 : 7}
             className="jk-dot"
+            style={{ animationDelay: `${Math.min(i, 30) * 25}ms` }}
             fill={categoryColor[m.category]}
             stroke="white"
             strokeWidth="1.5"

@@ -21,6 +21,7 @@ import {
 import { Icon, Modal, Loading, ErrorNotice, Steps } from "./ui";
 import CatalogEditor from "./catalog";
 import BellDrawer from "./bell";
+import { CountUp, popCap } from "./brand";
 import { ConfidenceBadge, MoreMenu, SafeBatchModal, type GroupBy, type Queue } from "./automation";
 
 /** Coluna do quadro: uma máquina (visão por máquina) ou uma classe de falha (visão por falha). */
@@ -709,7 +710,9 @@ function MlPanel({
         <div className="kb-ml-main">
           {last ? (
             <div>
-              <strong className={`tone-${tone(last.hit_rate)}`}>{fmt(last.hit_rate, 1)}%</strong>
+              <strong className={`tone-${tone(last.hit_rate)}`}>
+                <CountUp value={`${fmt(last.hit_rate, 1)}%`} />
+              </strong>
               <span title="Apontamentos em que a classe sugerida pela ML na chegada da planilha foi mantida pelo analista">
                 de acerto {isThis ? "nesta planilha" : "na última planilha finalizada"}
               </span>
@@ -913,7 +916,11 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
       // Finalizar = a ML treina com esta planilha e mede quanto acertou nela.
       const r = await api<{ ready: boolean; learning?: SheetReport }>(`/analyses/${id}/finish`, { method: "POST" });
       onUpdate();
-      if (r.learning) setLearned(r.learning);
+      if (r.learning) {
+        setLearned(r.learning);
+        // A planilha foi finalizada: a tampinha estoura no meio da tela.
+        setTimeout(() => popCap(window.innerWidth / 2, window.innerHeight * 0.36), 120);
+      }
       else navigate({ view: "analise", id });
     } catch (e) {
       setError((e as Error).message);
@@ -1565,7 +1572,7 @@ export default function Kanban({ id, onUpdate }: { id: string; onUpdate: () => v
           <div className="kb-learned">
             <div className="kb-learned-hero">
               <strong className={learned.hit_rate >= 85 ? "tone-ok" : learned.hit_rate >= 70 ? "tone-warn" : "tone-bad"}>
-                {fmt(learned.hit_rate, 1)}%
+                <CountUp value={`${fmt(learned.hit_rate, 1)}%`} duration={1300} />
               </strong>
               <span>
                 de acerto da ML nesta planilha

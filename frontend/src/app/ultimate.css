@@ -545,7 +545,6 @@ body {
     radial-gradient(70% 60% at 50% 35%, #ff2b45 0%, transparent 70%),
     linear-gradient(180deg, var(--coke) 0%, #c8001f 100%);
   color: #fff;
-  animation: splash-in 0.25s ease both;
   transition:
     clip-path 0.6s cubic-bezier(0.7, 0, 0.2, 1),
     opacity 0.6s;
@@ -793,4 +792,321 @@ body {
 }
 .kb-head-text .steps {
   margin-bottom: 8px;
+}
+
+/* =========================================================
+   Animações com cara de Coca-Cola
+   ========================================================= */
+
+/* ---------- Fita dinâmica: as duas faixas deslizam sem emenda ---------- */
+.ribbon .ribbon-back-g {
+  animation: ribbon-slide 16s linear infinite;
+}
+.ribbon .ribbon-front-g {
+  animation: ribbon-slide 10s linear infinite;
+}
+.ribbon.still .ribbon-back-g,
+.ribbon.still .ribbon-front-g {
+  animation: none;
+}
+@keyframes ribbon-slide {
+  to {
+    transform: translateX(-400px);
+  }
+}
+
+/* ---------- A garrafa enchendo ---------- */
+.bottle {
+  overflow: visible;
+}
+.bottle-glass {
+  fill: #fde1e6;
+}
+.bottle-liquid {
+  fill: var(--coke);
+  animation: bottle-wave 1.6s linear infinite;
+}
+.bottle-liquid.back {
+  fill: #ff7d91;
+  animation-duration: 2.6s;
+  animation-direction: reverse;
+  transform: translateY(-26px);
+}
+.bottle-bubble {
+  fill: #ffffffaa;
+  animation: bottle-bubble calc(1.1s + var(--i) * 0.17s) ease-in calc(var(--i) * -0.23s) infinite;
+}
+.bottle-cola .bottle-glass {
+  fill: #ffffff33;
+}
+.bottle-cola .bottle-liquid {
+  fill: #ffffff;
+}
+.bottle-cola .bottle-liquid.back {
+  fill: #ffffffaa;
+}
+.bottle-cola .bottle-bubble {
+  fill: #e4002b38;
+}
+.bottle-loop .bottle-level {
+  animation: bottle-loop 2.6s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+}
+.bottle-once .bottle-level {
+  animation: bottle-once 1.25s cubic-bezier(0.3, 0.6, 0.3, 1) 0.25s both;
+}
+@keyframes bottle-wave {
+  to {
+    transform: translateX(-1140px);
+  }
+}
+@keyframes bottle-loop {
+  from {
+    transform: translateY(1950px);
+  }
+  to {
+    transform: translateY(240px);
+  }
+}
+@keyframes bottle-once {
+  from {
+    transform: translateY(2200px);
+  }
+  to {
+    transform: translateY(-70px);
+  }
+}
+@keyframes bottle-bubble {
+  from {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-1700px) translateX(30px);
+    opacity: 0;
+  }
+}
+
+/* Carregando: a garrafa no lugar do círculo girando */
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 260px;
+  color: var(--ink-soft);
+  font-weight: 650;
+}
+.import-working {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.import-working .bottle {
+  flex: none;
+}
+
+/* ---------- Efervescência nas ações ---------- */
+.fizz-burst {
+  position: fixed;
+  z-index: 2000;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.fizz-burst i {
+  position: absolute;
+  left: calc(var(--s) / -2);
+  top: calc(var(--s) / -2);
+  width: var(--s);
+  height: var(--s);
+  border-radius: 50%;
+  border: 1.5px solid #e4002bcc;
+  background: radial-gradient(circle at 35% 30%, #ffffffee 0 18%, #ff2b4526 40%);
+  opacity: 0;
+  animation: fizz-up var(--d) cubic-bezier(0.2, 0.7, 0.4, 1) var(--w) forwards;
+}
+@keyframes fizz-up {
+  0% {
+    transform: translate(0, 0) scale(0.3);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--dx), var(--dy)) scale(1);
+    opacity: 0;
+  }
+}
+
+/* ---------- Tampinha estourando (planilha finalizada) ---------- */
+.cap-pop {
+  position: fixed;
+  z-index: 2001;
+  width: 52px;
+  height: 52px;
+  pointer-events: none;
+  filter: drop-shadow(0 8px 12px #8a001840);
+  animation: cap-pop 1.4s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+.cap-pop path {
+  fill: var(--coke);
+}
+.cap-pop circle {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2.4;
+}
+@keyframes cap-pop {
+  0% {
+    transform: scale(0.4) rotate(0);
+    opacity: 0;
+  }
+  12% {
+    transform: scale(1.15) rotate(40deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(120px, -300px) rotate(720deg) scale(0.9);
+    opacity: 0;
+  }
+}
+
+/* ---------- Abertura: a garrafa enche, a tampinha estoura, a tela sobe com a onda ---------- */
+.splash {
+  clip-path: none;
+  overflow: visible;
+  transition: transform 0.8s cubic-bezier(0.7, 0, 0.2, 1);
+}
+.splash .splash-bubbles {
+  overflow: hidden;
+}
+.splash.out {
+  clip-path: none;
+  transform: translateY(-104%);
+}
+.splash-bottle {
+  filter: drop-shadow(0 22px 34px #5c001080);
+  animation: splash-mark 1s cubic-bezier(0.2, 0.9, 0.25, 1.2) both;
+  transform-origin: 50% 30%;
+}
+.splash-cap {
+  top: -78px;
+  width: 58px;
+  height: 58px;
+  margin-left: -29px;
+  animation: splash-cap-pop 1.3s cubic-bezier(0.25, 0.7, 0.2, 1) 1.15s both;
+}
+@keyframes splash-cap-pop {
+  0% {
+    transform: translateY(0) rotate(0);
+    opacity: 1;
+  }
+  10% {
+    transform: translateY(-14px) rotate(-12deg) scale(1.08);
+  }
+  100% {
+    transform: translate(170px, -300px) rotate(600deg);
+    opacity: 0;
+  }
+}
+.splash-cap {
+  opacity: 0;
+}
+.splash-word {
+  animation-delay: 1.3s;
+}
+.splash-sub {
+  animation-delay: 1.75s;
+}
+.splash-ribbon {
+  bottom: -1px;
+  height: 18vh;
+  transform: translateY(99%);
+  animation: none;
+}
+.splash-ribbon .ribbon-back {
+  fill: #ffffff33;
+}
+
+/* ---------- Importar: a área "enche" ao arrastar a planilha ---------- */
+.drop-zone {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.drop-zone::after {
+  content: "";
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  bottom: 0;
+  height: 0;
+  z-index: -1;
+  border-radius: 45% 55% 0 0 / 22px 22px 0 0;
+  background: linear-gradient(180deg, #ffd5dc 0%, #ffe9ed 100%);
+  transition: height 0.6s cubic-bezier(0.3, 0.7, 0.3, 1);
+}
+.drop-zone.over::after {
+  height: 72%;
+  animation: drop-slosh 1.6s ease-in-out infinite;
+}
+@keyframes drop-slosh {
+  50% {
+    border-radius: 55% 45% 0 0 / 26px 18px 0 0;
+  }
+}
+.drop-zone.over .upload-glyph {
+  transform: translateY(-6px) scale(1.06);
+}
+
+/* ---------- Gráficos: as barras enchem como um copo e os pontos sobem como bolhas ---------- */
+.pareto-bar {
+  animation: bar-fill 0.95s cubic-bezier(0.2, 0.9, 0.3, 1.12) both;
+}
+@keyframes bar-fill {
+  from {
+    transform: scaleY(0);
+  }
+  72% {
+    transform: scaleY(1.035);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+.jk-dot {
+  animation: dot-bubble 0.8s cubic-bezier(0.2, 0.8, 0.3, 1.2) both;
+}
+@keyframes dot-bubble {
+  from {
+    transform: translateY(26px) scale(0.3);
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+}
+
+/* Antes do React montar a abertura: tela vermelha (evita o app piscar antes da animação). */
+html.splash-pending body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background:
+    radial-gradient(70% 60% at 50% 35%, #ff2b45 0%, transparent 70%),
+    linear-gradient(180deg, #e4002b 0%, #c8001f 100%);
+  /* Segurança: se o script não rodar, a cobertura some sozinha. */
+  animation: cover-out 0.3s ease 4s forwards;
+}
+@keyframes cover-out {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
 }

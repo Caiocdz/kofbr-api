@@ -25,7 +25,7 @@ import Kanban from "@/components/kanban";
 import MlFill from "@/components/ml-fill";
 import Pipeline from "@/components/pipeline";
 import Desempenho from "@/components/desempenho";
-import { GargaloMark, Ribbon, Splash } from "@/components/brand";
+import { GargaloMark, Ribbon, Splash, useFizzOnActions } from "@/components/brand";
 import { Dashboard, Compare } from "@/components/analysis";
 import "./home.css";
 import "./kanban.css";
@@ -412,6 +412,7 @@ export default function Page() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [mobile, setMobile] = useState(false);
+  useFizzOnActions();
   const load = useCallback(() => {
     void api<Analysis[]>("/analyses")
       .then((a) => {

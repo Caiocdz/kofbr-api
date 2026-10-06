@@ -13,7 +13,10 @@ API em Python (Flask + scikit-learn), interface em Next.js/React servida pela pr
 **Identidade visual:** vermelho Coca-Cola `#E4002B` só na marca e nas ações, branco no conteúdo, cinza-gelo
 `#F4F6F8` nas superfícies e grafite no texto; títulos em Bricolage Grotesque e texto em Manrope. O símbolo do
 gargalo é vetorial com fundo transparente (`frontend/public/gargalo.svg` e `gargalo-branco.svg`; componente
-`GargaloMark` em `components/brand.tsx`). A abertura animada aparece uma vez por sessão e não aparece quando o
+`GargaloMark` em `components/brand.tsx`). Animações: a abertura (a garrafa enche, a tampinha estoura, o
+nome é escrito e a tela sobe com a onda) aparece uma vez por sessão; a garrafa enchendo é o indicador de
+carregamento; bolhas sobem ao validar, importar e finalizar; a tampinha estoura quando a ML aprende com uma
+planilha; a fita da barra lateral ondula; os números enchem de 0 até o valor. Tudo é desligado quando o
 sistema pede "reduzir movimento".
 
 ## Abrir no Windows

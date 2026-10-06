@@ -2,6 +2,7 @@
 import { useRef, useState } from "react";
 import { api, ApiError, navigate, type Board } from "@/lib/radar";
 import { Icon, Heading, ErrorNotice } from "./ui";
+import { BottleFill } from "./brand";
 export default function Importer({ onUpdate }: { onUpdate: () => void }) {
   const [file, setFile] = useState<File>();
   const [drag, setDrag] = useState(false);
@@ -126,7 +127,7 @@ export default function Importer({ onUpdate }: { onUpdate: () => void }) {
           </div>
           {busy && (
             <div className="import-working" role="status">
-              <div className="processing-line" />
+              <BottleFill size={64} />
               <p>
                 Lendo a planilha e comparando descrições do mesmo contexto.
                 Arquivos maiores podem levar alguns minutos.
