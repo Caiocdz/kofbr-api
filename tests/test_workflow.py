@@ -22,7 +22,27 @@ def spreadsheet(rows, headers=HEADERS):
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def mysql_db(monkeypatch):
+    """Banco MySQL descartável (kofbr_teste_<aleatório>) no mesmo servidor configurado em .env/variáveis."""
+    import uuid
+    import db
+    name = f'kofbr_teste_{uuid.uuid4().hex[:10]}'
+    monkeypatch.setenv('KOFBR_DB_NAME', name)
+    try:
+        db.ensure_database()
+    except Exception as exc:  # sem MySQL acessível: pula em vez de falhar
+        pytest.skip(f'MySQL indisponível para os testes ({db.describe()}): {exc}')
+    yield name
+    conn = db._connect(database=False)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f'DROP DATABASE IF EXISTS `{name}`')
+    finally:
+        conn.close()
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch, mysql_db):
     from workflow import learning
     monkeypatch.setenv('KOFBR_DATA_DIR', str(tmp_path))
     # Isola dos dados reais: a pasta de planilhas de treino do pacote não entra nos testes.
@@ -30,7 +50,6 @@ def client(tmp_path, monkeypatch):
     learning.reset()
     # Nos testes o treino é chamado explicitamente (sem threads em segundo plano).
     monkeypatch.setattr(learning, 'retrain_in_background', lambda build: None)
-    monkeypatch.setenv('KOFBR_WORKFLOW_DB', 'sqlite')
     app = create_app()
     app.config['TESTING'] = True
     with app.test_client() as client:
@@ -646,22 +665,6 @@ def test_merge_cards_undo_redo(client):
     assert 'MOTOR QUEIMADO' not in service.memory()
     assert next(c for c in board['cards'] if c['id'] == mot['id'])['class'] == 'FALHA DE MOTOR'
     assert action(client, board, 'redo').status_code == 200
-
-
-def test_resumo_from_validated_analysis(client):
-    import openpyxl as xl
-    rows = [['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'FALHA NO SENSOR DE SAIDA 30008224349', 10],
-            ['U1', '13/09/2026', 'L1', 'Enchedora', 'P.EQ.LINHA', 'FALHA NO SENSOR DE SAIDA 30008224350', 5],
-            ['U1', '13/09/2026', 'L2', 'Rotuladora', 'P.EQ.LINHA', 'ROLAMENTO QUEBRADO', 7]]
-    board = validate_all(client, upload(client, rows).json)
-    out = client.get(f"/api/workspace/analyses/{board['id']}/resumo.xlsx")
-    assert out.status_code == 200
-    sheet = xl.load_workbook(io.BytesIO(out.data)).worksheets[0]
-    head = [c.value for c in sheet[1]]
-    body = [dict(zip(head, [c.value for c in r])) for r in sheet.iter_rows(min_row=2)]
-    assert len(body) == 2
-    sensor = next(r for r in body if r['Classificação'] == 'FALHA DE SENSOR')
-    assert sensor['Ocorrências'] == 2 and sensor['Minutos de parada'] == 15
 
 
 def _sap_sheet():

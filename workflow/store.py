@@ -1,30 +1,14 @@
-"""Persistência atômica. SQLite local ou o MySQL já configurado no projeto."""
+"""Persistência no MySQL (configuração em db.py / .env). Gravações atômicas: commit, rollback e close."""
 import hashlib
 import json
-import os
-import sqlite3
 from contextlib import contextmanager
-from pathlib import Path
 
-
-def driver():
-    return os.environ.get('KOFBR_WORKFLOW_DB', 'sqlite').lower()
+import db
 
 
 @contextmanager
 def connection():
-    if driver() == 'mysql':
-        from db import get_conn
-        conn = get_conn()
-    elif driver() == 'sqlite':
-        path = Path(os.environ.get('KOFBR_DATA_DIR', Path(__file__).resolve().parents[1] / 'data'))
-        path.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(path / 'radar.sqlite3', timeout=30)
-        conn.row_factory = sqlite3.Row
-        conn.execute('PRAGMA journal_mode=WAL')
-        conn.execute('PRAGMA foreign_keys=ON')
-    else:
-        raise ValueError('KOFBR_WORKFLOW_DB deve ser sqlite ou mysql')
+    conn = db.get_conn()
     try:
         yield conn
         conn.commit()
@@ -35,51 +19,56 @@ def connection():
         conn.close()
 
 
+_TABLE = 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+
+
 def initialize():
+    """Cria o banco (se preciso) e as tabelas. Idempotente: roda a cada inicialização."""
+    db.init_db()  # banco + tabelas do fluxo antigo (/api/upload, /api/clusters, /api/dashboard)
     with connection() as conn:
-        text_type, blob_type = ('LONGTEXT', 'LONGBLOB') if driver() == 'mysql' else ('TEXT', 'BLOB')
         conn.execute(f'''CREATE TABLE IF NOT EXISTS radar_analyses (
             id VARCHAR(36) PRIMARY KEY,
             content_hash VARCHAR(64) NOT NULL UNIQUE,
             revision INTEGER NOT NULL,
-            document {text_type} NOT NULL,
-            source_file {blob_type},
+            document LONGTEXT NOT NULL,
+            source_file LONGBLOB,
             created_at VARCHAR(32) NOT NULL
-        )''')
+        ) {_TABLE}''')
         conn.execute(f'''CREATE TABLE IF NOT EXISTS radar_settings (
             name VARCHAR(64) PRIMARY KEY,
-            value {text_type} NOT NULL
-        )''')
+            value LONGTEXT NOT NULL
+        ) {_TABLE}''')
         # Relatos revisados pelo analista na tela "Revisar previsões" (treino do preenchimento por ML).
         conn.execute(f'''CREATE TABLE IF NOT EXISTS radar_ml_examples (
             id VARCHAR(40) PRIMARY KEY,
-            relato {text_type} NOT NULL,
-            relato_norm {text_type} NOT NULL,
+            relato LONGTEXT NOT NULL,
+            relato_norm LONGTEXT NOT NULL,
             classe VARCHAR(160) NOT NULL,
-            detalhe {text_type},
+            detalhe LONGTEXT,
             origem VARCHAR(255),
             created_at VARCHAR(32) NOT NULL
-        )''')
+        ) {_TABLE}''')
         # Fluxo único: uma linha por relato único de cada análise (previsão do ML + validação humana).
         conn.execute(f'''CREATE TABLE IF NOT EXISTS radar_ml_items (
             id VARCHAR(40) PRIMARY KEY,
             analysis_id VARCHAR(36) NOT NULL,
-            relato_norm {text_type} NOT NULL,
-            relato {text_type} NOT NULL,
+            relato_norm LONGTEXT NOT NULL,
+            relato LONGTEXT NOT NULL,
             n_linhas INTEGER NOT NULL,
             minutos DOUBLE PRECISION NOT NULL,
             classe VARCHAR(160) NOT NULL,
-            detalhe {text_type},
+            detalhe LONGTEXT,
             confianca DOUBLE PRECISION,
             faixa VARCHAR(16) NOT NULL,
-            top3 {text_type},
+            top3 LONGTEXT,
             status VARCHAR(16) NOT NULL,
             classe_final VARCHAR(160),
-            detalhe_final {text_type},
-            updated_at VARCHAR(32)
-        )''')
+            detalhe_final LONGTEXT,
+            updated_at VARCHAR(32),
+            INDEX ix_ml_items_analysis (analysis_id)
+        ) {_TABLE}''')
         # Passo 4: ocorrências agrupadas por falha (classe validada ou prevista).
-        conn.execute('''CREATE TABLE IF NOT EXISTS radar_failure_summary (
+        conn.execute(f'''CREATE TABLE IF NOT EXISTS radar_failure_summary (
             id VARCHAR(40) PRIMARY KEY,
             analysis_id VARCHAR(36) NOT NULL,
             classe VARCHAR(160) NOT NULL,
@@ -90,14 +79,17 @@ def initialize():
             percentual DOUBLE PRECISION NOT NULL,
             acumulado DOUBLE PRECISION NOT NULL,
             linhas_validadas INTEGER NOT NULL,
-            updated_at VARCHAR(32) NOT NULL
-        )''')
-    for name, table in (('ix_ml_items_analysis', 'radar_ml_items'), ('ix_failure_summary_analysis', 'radar_failure_summary')):
-        try:  # MySQL não aceita "IF NOT EXISTS" em índices: se já existir, segue em frente
-            with connection() as conn:
+            updated_at VARCHAR(32) NOT NULL,
+            INDEX ix_failure_summary_analysis (analysis_id)
+        ) {_TABLE}''')
+        # Tabelas criadas por versões anteriores sem o índice: cria se faltar.
+        for name, table in (('ix_ml_items_analysis', 'radar_ml_items'),
+                            ('ix_failure_summary_analysis', 'radar_failure_summary')):
+            found = conn.execute('SELECT COUNT(*) AS n FROM INFORMATION_SCHEMA.STATISTICS '
+                                 'WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?',
+                                 (table, name)).fetchone()['n']
+            if not found:
                 conn.execute(f'CREATE INDEX {name} ON {table} (analysis_id)')
-        except Exception:
-            pass
 
 
 def insert(doc, fingerprint, source):
@@ -148,8 +140,7 @@ def save(doc, expected_revision):
     with connection() as conn:
         cur = conn.execute('UPDATE radar_analyses SET document = ?, revision = ? WHERE id = ? AND revision = ?',
                            (json.dumps(doc, ensure_ascii=False), doc['revision'], doc['id'], expected_revision))
-        changed = cur.rowcount if hasattr(cur, 'rowcount') else cur._cursor.rowcount
-        return changed == 1
+        return cur.rowcount == 1
 
 
 def get_setting(name):

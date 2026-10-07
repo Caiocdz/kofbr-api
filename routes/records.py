@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 
-from db import get_conn, now
+from db import get_conn
 
 records_bp = Blueprint("records", __name__)
 

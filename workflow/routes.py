@@ -1,7 +1,6 @@
 import io
 from pathlib import Path
 from flask import Blueprint, jsonify, request, send_file
-from werkzeug.exceptions import HTTPException
 from . import store, importer, service
 
 bp = Blueprint('workspace', __name__, url_prefix='/api/workspace')
@@ -18,6 +17,11 @@ def document(analysis_id):
 @bp.errorhandler(ValueError)
 def invalid(error):
     return jsonify(erro=str(error)), 400
+
+
+@bp.errorhandler(404)
+def not_found(error):
+    return jsonify(erro=getattr(error, 'description', None) or 'Não encontrado.'), 404
 
 
 @bp.route('/analyses', methods=['GET'])
@@ -136,7 +140,7 @@ def get_memory():
 @bp.route('/memory', methods=['DELETE'])
 def forget_memory():
     text = request.args.get('text')
-    mem = service.memory()
+    mem = store.get_setting('class_memory') or {}
     if text:
         mem.pop(text, None)
         store.set_setting('class_memory', mem)
@@ -167,17 +171,6 @@ def analysis_full(analysis_id):
     mime = ('application/vnd.ms-excel.sheet.macroEnabled.12' if name.endswith('.xlsm')
             else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     return send_file(io.BytesIO(data), as_attachment=True, download_name=name, mimetype=mime)
-
-
-@bp.route('/analyses/<analysis_id>/resumo.xlsx')
-def analysis_resumo(analysis_id):
-    from . import resumo
-    doc = document(analysis_id)
-    if doc.get('mode') == 'ml':
-        raise ValueError('A planilha resumida por observação está disponível para análises do quadro.')
-    data, name = resumo.from_analysis(doc)
-    return send_file(io.BytesIO(data), as_attachment=True, download_name=name,
-                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
 @bp.route('/analyses/<analysis_id>/source')

@@ -1,39 +1,21 @@
 """
-Camada de acesso ao banco (MySQL, via PyMySQL).
+Conexão com o MySQL (PyMySQL). Todo o sistema grava aqui: não há banco dentro da pasta do projeto.
 
-Nota de migracao (vindo do prototipo em SQLite):
-- MySQL usa '%s' como placeholder de parametro, SQLite usa '?'. Em vez de
-  reescrever toda query em routes/*.py, a conexao devolvida por get_conn()
-  e um wrapper fino (_CompatConnection/_CompatCursor) que aceita as MESMAS
-  queries com '?' que ja estavam escritas e troca por '%s' por baixo dos
-  panos antes de mandar pro driver. Isso significa que os arquivos em
-  routes/ NAO precisaram ser reescritos por causa da troca de banco.
-- pymysql.cursors.DictCursor ja devolve cada linha como dict (equivalente
-  ao sqlite3.Row + row_factory de antes), entao `dict(row)` e `row["campo"]`
-  continuam funcionando igual.
-- O 'INSERT ... ON CONFLICT ... DO UPDATE' do SQLite (usado em
-  radio_channels.py) NAO tem equivalente automatico aqui -- isso foi
-  reescrito manualmente pra 'INSERT ... ON DUPLICATE KEY UPDATE', que e a
-  sintaxe de upsert do MySQL.
+Configuração (nesta ordem de prioridade):
+1. variáveis de ambiente KOFBR_DB_HOST, KOFBR_DB_PORT, KOFBR_DB_USER, KOFBR_DB_PASSWORD, KOFBR_DB_NAME;
+2. arquivo `.env` na pasta do projeto (mesmas chaves, uma por linha: CHAVE=valor — veja `.env.example`);
+3. padrão: localhost:3306, usuário root, senha root, banco kofbr.
 
-Credenciais vem de variavel de ambiente (nunca hardcoded). Configure antes
-de rodar, por exemplo:
+O banco é criado automaticamente na primeira execução (CREATE DATABASE IF NOT EXISTS) com utf8mb4.
 
-    export KOFBR_DB_HOST=localhost
-    export KOFBR_DB_PORT=3306
-    export KOFBR_DB_USER=root
-    export KOFBR_DB_PASSWORD=sua_senha
-    export KOFBR_DB_NAME=kofbr
-
-Importante: este arquivo nao foi testado contra um MySQL real no ambiente
-onde eu desenvolvi (sem acesso a rede/instalacao local de MySQL). Revisei
-a sintaxe manualmente, mas rode o init_db() e teste o fluxo de upload
-assim que tiver um MySQL disponivel e me avise se algum erro aparecer.
+As queries da aplicação usam '?' (estilo DB-API qmark); o wrapper _CompatConnection/_CompatCursor troca
+por '%s' (estilo do PyMySQL) fora de literais de string antes de mandar ao driver. Linhas voltam como dict
+(DictCursor), então `row["campo"]` e `dict(row)` funcionam.
 """
 import os
 import re
-import json
 from datetime import datetime
+from pathlib import Path
 
 import pymysql
 import pymysql.cursors
@@ -44,14 +26,47 @@ from fingerprints import SOURCE_FIELDS, fingerprint_records
 # Isso evita que um '?' dentro de LIKE 'valor?' seja substituido acidentalmente.
 _PLACEHOLDER_RE = re.compile(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"|(\?)")
 
-DB_HOST = os.environ.get("KOFBR_DB_HOST", "localhost")
-DB_PORT = int(os.environ.get("KOFBR_DB_PORT", "3306"))
-DB_USER = os.environ.get("KOFBR_DB_USER", "root")
-DB_PASSWORD = os.environ.get("KOFBR_DB_PASSWORD", "root")
-DB_NAME = os.environ.get("KOFBR_DB_NAME", "kofbr")
-DB_CONNECT_TIMEOUT = int(os.environ.get("KOFBR_DB_CONNECT_TIMEOUT", "5"))
-DB_READ_TIMEOUT = int(os.environ.get("KOFBR_DB_READ_TIMEOUT", "10"))
-DB_WRITE_TIMEOUT = int(os.environ.get("KOFBR_DB_WRITE_TIMEOUT", "20"))
+ROOT = Path(__file__).resolve().parent
+
+
+def _load_env_file():
+    """Lê o `.env` do projeto (se existir) sem sobrescrever variáveis já definidas no sistema."""
+    path = ROOT / '.env'
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding='utf-8-sig').splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, value = line.split('=', 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_env_file()
+
+
+def settings():
+    """Lido a cada conexão: permite trocar o banco por variável de ambiente (usado nos testes)."""
+    env = os.environ.get
+    return {
+        'host': env('KOFBR_DB_HOST', 'localhost'),
+        'port': int(env('KOFBR_DB_PORT', '3306')),
+        'user': env('KOFBR_DB_USER', 'root'),
+        'password': env('KOFBR_DB_PASSWORD', 'root'),
+        'database': env('KOFBR_DB_NAME', 'kofbr'),
+        'connect_timeout': int(env('KOFBR_DB_CONNECT_TIMEOUT', '5')),
+        # Documentos de análise e planilhas originais chegam a dezenas de MB: prazos e pacote generosos.
+        'read_timeout': int(env('KOFBR_DB_READ_TIMEOUT', '300')),
+        'write_timeout': int(env('KOFBR_DB_WRITE_TIMEOUT', '300')),
+    }
+
+
+def describe():
+    cfg = settings()
+    return f"{cfg['user']}@{cfg['host']}:{cfg['port']}/{cfg['database']}"
+
+
+MAX_PACKET = 512 * 1024 * 1024
 
 
 class _CompatCursor:
@@ -80,6 +95,10 @@ class _CompatCursor:
     @property
     def lastrowid(self):
         return self._cursor.lastrowid
+
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
 
     def close(self):
         self._cursor.close()
@@ -120,21 +139,50 @@ class _CompatConnection:
         self._conn.close()
 
 
-def get_conn():
-    real_conn = pymysql.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        database=DB_NAME,
+def _connect(database=True):
+    cfg = settings()
+    if not database:
+        cfg.pop('database')
+    return pymysql.connect(
+        **cfg,
         charset="utf8mb4",
         cursorclass=pymysql.cursors.DictCursor,
         autocommit=False,
-        connect_timeout=DB_CONNECT_TIMEOUT,
-        read_timeout=DB_READ_TIMEOUT,
-        write_timeout=DB_WRITE_TIMEOUT,
+        max_allowed_packet=MAX_PACKET,
     )
-    return _CompatConnection(real_conn)
+
+
+def get_conn():
+    return _CompatConnection(_connect())
+
+
+def ensure_database():
+    """Cria o banco (se o usuário puder) e tenta liberar pacotes grandes no servidor.
+
+    Se o DBA já criou o banco e só deu permissão dentro dele, o CREATE é ignorado/recusado e seguimos."""
+    name = settings()['database']
+    if not re.fullmatch(r'[A-Za-z0-9_$]+', name):
+        raise ValueError('KOFBR_DB_NAME deve ter apenas letras, números, _ ou $.')
+    conn = _connect(database=False)
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(f"CREATE DATABASE IF NOT EXISTS `{name}` "
+                            "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+            except pymysql.err.MySQLError:
+                pass
+            # O documento de uma planilha grande + o arquivo original passam do padrão do MySQL (16–64 MB).
+            cur.execute("SELECT @@GLOBAL.max_allowed_packet AS v")
+            if int(cur.fetchone()['v']) < 256 * 1024 * 1024:
+                for scope in ('PERSIST', 'GLOBAL'):  # PERSIST (MySQL 8) sobrevive ao reinício do serviço
+                    try:
+                        cur.execute(f"SET {scope} max_allowed_packet = %s", (256 * 1024 * 1024,))
+                        break
+                    except pymysql.err.MySQLError:
+                        continue  # sem privilégio: planilhas muito grandes podem falhar; ver README
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def unique_import_filter(alias="r"):
@@ -271,27 +319,8 @@ SCHEMA_STATEMENTS = [
 
 
 def init_db():
-    """Cria o banco 'kofbr' (se o usuario tiver permissao de CREATE DATABASE)
-    e todas as tabelas. Se o DBA ja tiver criado o banco e so liberado
-    permissao dentro dele, a criacao do banco abaixo simplesmente e ignorada
-    (IF NOT EXISTS) e segue pra criar as tabelas."""
-    admin_conn = pymysql.connect(
-        host=DB_HOST, port=DB_PORT, user=DB_USER, password=DB_PASSWORD,
-        charset="utf8mb4",
-        connect_timeout=DB_CONNECT_TIMEOUT,
-        read_timeout=DB_READ_TIMEOUT,
-        write_timeout=DB_WRITE_TIMEOUT,
-    )
-    try:
-        with admin_conn.cursor() as cur:
-            cur.execute(
-                f"CREATE DATABASE IF NOT EXISTS {DB_NAME} "
-                f"CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
-            )
-        admin_conn.commit()
-    finally:
-        admin_conn.close()
-
+    """Cria o banco e as tabelas do fluxo antigo (/api/upload, /api/clusters...)."""
+    ensure_database()
     conn = get_conn()
     try:
         cur = conn.cursor()
@@ -323,7 +352,7 @@ def _safe_add_column(cur, table, column, definition):
         SELECT COUNT(*) as cnt FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s
         """,
-        (DB_NAME, table, column),
+        (settings()["database"], table, column),
     )
     row = cur.fetchone()
     # DictCursor devolve dict; cursor raw devolve tuple -- compatibiliza:
@@ -338,7 +367,7 @@ def _safe_add_index(cur, table, index, columns):
         SELECT COUNT(*) as cnt FROM INFORMATION_SCHEMA.STATISTICS
         WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND INDEX_NAME = %s
         """,
-        (DB_NAME, table, index),
+        (settings()["database"], table, index),
     )
     row = cur.fetchone()
     exists = row["cnt"] if isinstance(row, dict) else row[0]
@@ -372,4 +401,6 @@ def now():
 
 if __name__ == "__main__":
     init_db()
-    print(f"Banco '{DB_NAME}' inicializado em {DB_HOST}:{DB_PORT}")
+    from workflow import store
+    store.initialize()
+    print(f"Banco inicializado: {describe()}")

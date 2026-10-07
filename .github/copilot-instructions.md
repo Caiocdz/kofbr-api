@@ -8,8 +8,9 @@
   registro automaticamente.
 - `routes/clusters.py` e a unica camada que confirma um grupo, dentro de uma
   transacao, depois de uma decisao humana na interface.
-- O banco e MySQL via PyMySQL. As queries da aplicacao usam `?`; `db.py`
-  traduz para o placeholder `%s` do driver.
+- O banco e MySQL via PyMySQL (config em `.env` / `KOFBR_DB_*`; padrao
+  root:root@localhost:3306/kofbr). As queries da aplicacao usam `?`; `db.py`
+  traduz para o placeholder `%s` do driver. Nao existe mais SQLite.
 
 ## Regras de negocio obrigatorias
 

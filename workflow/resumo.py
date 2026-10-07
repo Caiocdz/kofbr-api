@@ -1,23 +1,19 @@
-"""Exportações por observação a partir da análise validada no quadro.
+"""Exportação da análise validada no quadro.
 
 - Planilha completa com Classificação (`full_from_analysis`): a planilha ORIGINAL importada, intacta,
   com a coluna "Classificação" que saiu do quadro (validada pelo analista).
-- Planilha resumida (`from_analysis`): uma linha por observação única, sem as repetições.
 - `sheet_examples`: exemplos (relato, classe) salvos antes pela tela "Classificar planilha" (removida);
   continuam valendo no treino do modelo.
 """
 import io
 import re
 import unicodedata
-from collections import Counter, defaultdict
-from datetime import datetime
+from collections import defaultdict
 from pathlib import Path
 
 from . import classify as fc
 
-ORIGIN = {'analista': 'Analista (padronizada)', 'memoria': 'Memória de correções', 'regra': 'Catálogo',
-          'componente': 'Catálogo', 'processo': 'Catálogo', 'aprendizado': 'Machine learning',
-          'quadro': 'Validada no quadro', 'nenhum': '—'}
+RED = 'C8102E'
 
 
 # ----------------------------------------------------------------------------- leitura
@@ -157,189 +153,3 @@ def full_from_analysis(doc, source):
 def sheet_examples():
     from . import store
     return [(v['text'], v['label']) for v in (store.get_setting('sheet_examples') or {}).values()]
-
-
-# ----------------------------------------------------------------------------- planilha de saída
-
-RED = 'C8102E'
-
-
-def _variations(g, limit=3):
-    others = [t for t, _ in g['texts'].most_common() if t != g['text']]
-    if not others:
-        return ''
-    extra = len(others) - limit
-    return ' | '.join(o[:120] for o in others[:limit]) + (f' | +{extra}' if extra > 0 else '')
-
-
-def _join(counter, limit=4):
-    items = [k for k, _ in counter.most_common()]
-    return ', '.join(items[:limit]) + (f' +{len(items) - limit}' if len(items) > limit else '')
-
-
-def build_workbook(groups, meta, with_context=False):
-    import openpyxl
-    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-    from openpyxl.utils import get_column_letter
-
-    wb = openpyxl.Workbook()
-    head_fill, head_font = PatternFill('solid', fgColor=RED), Font(bold=True, color='FFFFFF')
-    thin = Border(bottom=Side(style='thin', color='EEEEEE'))
-    tone = {'alta': 'E7F6EF', 'media': 'FFF6DC', 'baixa': 'FFF0F2'}
-
-    def table(ws, headers, widths, rows, colored=None):
-        ws.append(headers)
-        for c in range(1, len(headers) + 1):
-            cell = ws.cell(1, c)
-            cell.fill, cell.font = head_fill, head_font
-            cell.alignment = Alignment(vertical='center', wrap_text=True)
-        ws.row_dimensions[1].height = 30
-        for row in rows:
-            ws.append(row)
-        for i, w in enumerate(widths, 1):
-            ws.column_dimensions[get_column_letter(i)].width = w
-        for r in ws.iter_rows(min_row=2):
-            for cell in r:
-                cell.alignment = Alignment(vertical='top', wrap_text=True)
-                cell.border = thin
-        ws.freeze_panes = 'A2'
-        ws.auto_filter.ref = ws.dimensions
-        if colored:
-            col, values = colored
-            for i, v in enumerate(values, 2):
-                if v in tone:
-                    ws.cell(i, col).fill = PatternFill('solid', fgColor=tone[v])
-
-    ordered = sorted(groups, key=lambda g: (-g['count'], g['class'] or '', g['text']))
-    ws = wb.active
-    ws.title = 'Resumo'
-    headers = ['Nº', 'Observação', 'Ocorrências', 'Classificação', 'Origem da classificação', 'Confiança']
-    widths = [6, 70, 12, 36, 24, 11]
-    if with_context:
-        headers += ['Equipamentos', 'Linhas', 'Minutos de parada']
-        widths += [30, 16, 12]
-    headers += ['Classificação original do analista', 'Variações agrupadas']
-    widths += [32, 60]
-    conf = {'alta': 'Alta', 'media': 'Média', 'baixa': 'Revisar'}
-    rows = []
-    for i, g in enumerate(ordered, 1):
-        row = [i, g['text'] or '(em branco)', g['count'], g['class'], ORIGIN.get(g['source'], g['source']),
-               conf.get(g['confidence'], '')]
-        if with_context:
-            row += [_join(g['machines']), _join(g['lines']), round(g['minutes'], 1)]
-        row += [g['analyst'], _variations(g)]
-        rows.append(row)
-    table(ws, headers, widths, rows, colored=(6, [g['confidence'] for g in ordered]))
-
-    by_class = defaultdict(lambda: {'unique': 0, 'count': 0, 'minutes': 0.0, 'sources': Counter()})
-    for g in groups:
-        b = by_class[g['class']]
-        b['unique'] += 1
-        b['count'] += g['count']
-        b['minutes'] += g['minutes']
-        b['sources'][ORIGIN.get(g['source'], g['source'])] += g['count']
-    total = sum(g['count'] for g in groups) or 1
-    ws2 = wb.create_sheet('Por classificação')
-    rows2 = [[k, v['unique'], v['count'], round(v['count'] * 100 / total, 1), v['sources'].most_common(1)[0][0]]
-             + ([round(v['minutes'], 1)] if with_context else [])
-             for k, v in sorted(by_class.items(), key=lambda kv: -kv[1]['count'])]
-    table(ws2, ['Classificação', 'Observações únicas', 'Ocorrências', '% das ocorrências', 'Origem predominante']
-          + (['Minutos de parada'] if with_context else []), [40, 18, 14, 16, 26, 16], rows2)
-
-    ws3 = wb.create_sheet('Como foi feito')
-    ws3.column_dimensions['A'].width = 52
-    ws3.column_dimensions['B'].width = 70
-    title = ws3.cell(1, 1, 'Planilha resumida · Gargalo — Radar de Confiabilidade')
-    title.font = Font(bold=True, size=14, color=RED)
-    for i, (k, v) in enumerate(meta, 3):
-        ws3.cell(i, 1, k).font = Font(bold=True)
-        ws3.cell(i, 2, v).alignment = Alignment(wrap_text=True, vertical='top')
-    out = io.BytesIO()
-    wb.save(out)
-    return out.getvalue()
-
-
-def stats(groups, rows_read, info):
-    by_source = Counter()
-    for g in groups:
-        by_source[g['source']] += g['count']
-    filled = [g for g in groups if not g['analyst'] or g['source'] != 'analista']
-    return {
-        'rows': rows_read,
-        'unique': len(groups),
-        'duplicates': rows_read - len(groups),
-        'blank': sum(g['count'] for g in groups if not g['key']),
-        'analyst': sum(1 for g in groups if g['source'] == 'analista'),
-        'filled': sum(1 for g in filled if g['class'] not in fc.UNCLASSIFIED),
-        'unclassified': sum(1 for g in groups if g['class'] in fc.UNCLASSIFIED),
-        'by_source': {ORIGIN.get(k, k): v for k, v in by_source.most_common()},
-        'classes': len({g['class'] for g in groups}),
-        'model_accuracy': (info or {}).get('accuracy'),
-        'model_examples': (info or {}).get('examples'),
-    }
-
-
-def _meta(filename, st):
-    return [
-        ('Arquivo', filename),
-        ('Gerado em', datetime.now().strftime('%d/%m/%Y %H:%M')),
-        ('Linhas lidas', st['rows']),
-        ('Observações únicas (linhas do Resumo)', st['unique']),
-        ('Repetições agrupadas', f"{st['duplicates']} linha(s) — mesmo relato, mesmo sem acento, pontuação ou número de O.S./nota"),
-        ('Classificadas pelo analista (padronizadas)', st['analyst']),
-        ('Preenchidas pela ferramenta', f"{st['filled']} (memória de correções, catálogo de falhas ou machine learning)"),
-        ('Sem modo de falha identificado / sem descrição', f"{st['unclassified']} — precisam de análise manual (previsto no item 1.4 do descritivo)"),
-        ('Acerto do modelo (teste cego)', f"{st['model_accuracy']}%" if st['model_accuracy'] is not None else 'calibrando (mínimo de 60 exemplos)'),
-        ('Padrão da classificação', 'FALHA DE <componente> — a manifestação da falha, sem o restante do relato (descritivo, item 1.3)'),
-        ('Origem da classificação', 'Analista (padronizada): rótulo da planilha enquadrado no padrão · Memória: correção feita '
-                                    'antes no quadro · Catálogo: termo do catálogo de falhas · Machine learning: aprendido com '
-                                    'planilhas finalizadas e com as classificações dos analistas'),
-    ]
-
-
-# ----------------------------------------------------------------------------- entradas
-
-def from_analysis(doc):
-    """Análise validada do quadro → resumo (a classe é a validada pelo analista; nada é reclassificado)."""
-    from . import service
-    board = service.board(doc)
-    records = {r['id']: r for r in doc['records']}
-    rows = []
-    for card in board['cards']:
-        source = 'analista' if card['failure_class'] else ('quadro' if card['validated'] else card['source'])
-        for rid in card['record_ids']:
-            r = records[rid]
-            rows.append({'text': r.get('observacao_raw') or '', 'label': '', 'machine': r.get('equipamento') or '',
-                         'line': r.get('linha') or '', 'unit': r.get('centro') or '',
-                         'minutes': r.get('minutos_parada') or 0, 'class': card['class'], 'source': source,
-                         'confidence': 'alta' if card['validated'] else card['confidence']})
-    # Mesmo relato com classes diferentes (máquinas diferentes) fica em linhas separadas.
-    groups, index = [], {}
-    for r in rows:
-        key = (fc.memory_key(r['text']) or fc.normalize(r['text']), r['class'])
-        if key not in index:
-            index[key] = len(groups)
-            groups.append({'key': key[0], 'texts': Counter(), 'labels': Counter(), 'machines': Counter(), 'lines': Counter(),
-                           'units': Counter(), 'count': 0, 'minutes': 0.0, 'class': r['class'], 'sources': Counter(),
-                           'confs': Counter()})
-        g = groups[index[key]]
-        g['texts'][r['text']] += 1
-        g['machines'][r['machine']] += 1 if r['machine'] else 0
-        g['lines'][r['line']] += 1 if r['line'] else 0
-        g['count'] += 1
-        g['minutes'] += r['minutes']
-        g['sources'][r['source']] += 1
-        g['confs'][r['confidence']] += 1
-    for g in groups:
-        g['text'] = g['texts'].most_common(1)[0][0]
-        g['analyst'] = fc.pretty(g['class']) if g['sources'].get('analista') else ''
-        g['source'] = g['sources'].most_common(1)[0][0]
-        g['confidence'] = g['confs'].most_common(1)[0][0]
-        g['machines'] = +g['machines']
-        g['lines'] = +g['lines']
-    st = stats(groups, len(rows), None)
-    st['filled'] = sum(1 for g in groups if g['source'] != 'analista' and g['class'] not in fc.UNCLASSIFIED)
-    meta = _meta(doc.get('filename') or doc.get('name'), st)
-    meta[8] = ('Classificação', 'Validada pelo analista no quadro (a classe congelada na validação não muda depois)')
-    name = f"{Path(doc.get('filename') or doc.get('name') or 'analise').stem} - resumida.xlsx"
-    return build_workbook(groups, meta, with_context=True), name
