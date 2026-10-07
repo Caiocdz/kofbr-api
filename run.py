@@ -10,7 +10,17 @@ def main():
     from waitress import serve
     if not (Path(__file__).parent / 'frontend' / 'out' / 'index.html').exists():
         raise SystemExit('Interface não compilada. Execute: cd frontend && npm ci && npm run build')
-    app = create_app()
+    import db
+    import pymysql
+    try:
+        app = create_app()
+    except pymysql.err.MySQLError as exc:
+        raise SystemExit(
+            f'Não foi possível conectar ao MySQL ({db.describe()}).\n'
+            f'Detalhe: {exc}\n'
+            'Confira se o serviço MySQL está ligado e se usuário/senha/porta estão certos no arquivo .env '
+            '(modelo em .env.example).')
+    print(f'Banco de dados: MySQL {db.describe()}', flush=True)
     # Aprendizado: carrega o modelo salvo e retreina em segundo plano com o histórico validado.
     from workflow import learning, service
     learning.load()

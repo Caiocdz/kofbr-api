@@ -4,10 +4,8 @@ import hashlib
 import io
 import json
 import math
-import re
 from collections import defaultdict
 from datetime import date, datetime
-from functools import lru_cache
 from uuid import uuid4
 
 import numpy as np

@@ -1,7 +1,7 @@
 """Copia o histórico MySQL anterior para o novo quadro; não altera a origem.
 
-Execute depois de configurar KOFBR_DB_HOST, PORT, USER, PASSWORD e NAME.
-KOFBR_WORKFLOW_DB escolhe o destino (sqlite ou mysql).
+Origem e destino são o mesmo MySQL configurado em .env (KOFBR_DB_HOST, PORT, USER, PASSWORD, NAME):
+lê as tabelas antigas (upload_batches/records) e grava em radar_analyses.
 """
 from workflow import store, importer
 from db import get_conn

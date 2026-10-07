@@ -1,6 +1,6 @@
 # Gargalo — Radar de Confiabilidade
 
-Ferramenta local (roda no próprio computador, sem internet e sem enviar dados para fora) que transforma
+Ferramenta local (roda no próprio computador e no MySQL da sua rede, sem enviar dados para fora) que transforma
 a planilha de paradas do SAP em análise de manutenção, seguindo o descritivo do projeto Coca-Cola FEMSA:
 
 1. **Classifica** cada relato da coluna M (Observações) no padrão “FALHA DE <componente>” (descritivo, item 1);
@@ -26,15 +26,32 @@ do sistema. Os arquivos exportados (Excel, PNG, PDF) saem sempre no tema claro.
 
 1. Extraia todo o ZIP em uma pasta.
 2. Instale **Python 3.10 ou superior** (marque “Add Python to PATH”).
-3. Execute **`iniciar.bat`**. Na primeira vez ele instala as dependências (precisa de internet só nessa hora).
-4. O sistema abre em **http://127.0.0.1:5000**. Mantenha a janela do terminal aberta.
+3. Deixe o **MySQL** ligado (5.7, 8.x ou MariaDB 10.4+). Padrão: `localhost:3306`, usuário `root`, senha `root`,
+   banco `kofbr` — para mudar, edite o arquivo **`.env`** (modelo em `.env.example`). O banco e as tabelas são
+   criados sozinhos na primeira execução.
+4. Execute **`iniciar.bat`**. Na primeira vez ele instala as dependências (precisa de internet só nessa hora).
+5. O sistema abre em **http://127.0.0.1:5000**. Mantenha a janela do terminal aberta.
 
 A interface já vem compilada em `frontend/out` no pacote de entrega; Node.js só é necessário para quem for
 alterar a interface (`cd frontend && npm ci && npm run build`).
 
 Pelo terminal: `python -m pip install -r requirements.txt` e depois `python run.py`.
 
-O histórico fica em `data/radar.sqlite3` — preserve a pasta `data` ao atualizar o sistema.
+## Banco de dados (MySQL)
+
+Todo o histórico fica no MySQL, fora da pasta do projeto: análises (com a planilha original), validações,
+memória de correções, catálogo, revisões da ML e o resumo por falha. Tabelas: `radar_analyses`,
+`radar_settings`, `radar_ml_examples`, `radar_ml_items`, `radar_failure_summary` (e as do fluxo antigo:
+`upload_batches`, `records`, `clusters`...). Se o MySQL não responder, o `iniciar.bat` para com uma mensagem
+dizendo qual servidor/usuário tentou.
+
+- **Planilhas grandes:** documento + planilha original passam do limite padrão de pacote do MySQL. Ao iniciar,
+  o sistema eleva `max_allowed_packet` para 256 MB (o usuário `root` tem permissão; no MySQL 8 fica salvo).
+  Com outro usuário sem esse privilégio, peça ao DBA para configurar `max_allowed_packet=256M`.
+- **Vindo da versão com SQLite:** rode uma vez `python migrar_sqlite_para_mysql.py` (lê `data/radar.sqlite3`,
+  não altera o arquivo e pode ser repetido sem duplicar). Depois de conferir, o arquivo pode ser arquivado.
+- A pasta `data/` guarda só arquivos gerados: os modelos treinados (`*.joblib`, refeitos sozinhos a partir do
+  banco) e as planilhas classificadas pelo fluxo de ML (`data/ml_saidas`).
 
 ## Fluxo
 
@@ -74,8 +91,7 @@ unidade principal (o crítico-crônico é relativo a uma unidade, item 3.3).
 - **Tabelas** de máquinas e de falhas com no mínimo 40 linhas numeradas, T (min) do maior para o menor,
   Q, MTTR, T.T.A, %, 80% e categoria automática.
 - **Exportar Excel**: a planilha original completa com a coluna **Classificação** (nenhuma coluna muda de
-  letra; fórmulas e filtros preservados), o resumo no layout SAP com as tabelas, e a versão resumida (uma
-  linha por observação única). Gráficos em PNG/PDF. **Comparar** dois períodos. **Montar dashboard** manual.
+  letra; fórmulas e filtros preservados). Gráficos em PNG/PDF. **Comparar** dois períodos. **Montar dashboard** manual.
 
 **5. Desempenho da ML** (barra lateral): acerto por planilha finalizada (curva), acerto do modelo em teste
 cego a cada treino e tamanho da memória de correções.
@@ -112,11 +128,12 @@ Para a planilha mensal completa (~94 mil linhas), importe por período (semana o
 
 ## Testes
 
-`python -m pytest tests` (pytest à parte). Cobrem: exemplos do descritivo (itens 1.3), regras de agrupamento,
+`python -m pytest tests` (pytest à parte). Usam o mesmo MySQL do `.env`, num banco descartável
+`kofbr_teste_*` criado e apagado a cada teste (sem MySQL acessível, os testes são pulados). Cobrem: exemplos do descritivo (itens 1.3), regras de agrupamento,
 Pareto e Jack-Knife conferidos com cálculo à mão, sino, desfazer/refazer, aprendizado e exportações.
 
 ## Limitações conhecidas
 
 - Uso local, um analista por vez: não há login nem controle de usuários (a tela /login é só de apresentação).
-- MySQL e as rotas `/api/upload`, `/api/clusters`, `/api/dashboard/*` são do fluxo antigo, mantidos por
-  compatibilidade; o fluxo atual usa SQLite e `/api/workspace/*`.
+- As rotas `/api/upload`, `/api/clusters`, `/api/dashboard/*` são do fluxo antigo, mantidas por
+  compatibilidade; a interface usa `/api/workspace/*`. Os dois usam o mesmo banco MySQL.

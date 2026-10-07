@@ -2,7 +2,6 @@
 from collections import defaultdict
 from copy import deepcopy
 from datetime import date, datetime, timedelta
-from statistics import median
 from uuid import uuid4
 import re
 from collections import Counter
@@ -37,7 +36,9 @@ def learn(doc, card_ids, previous=None):
     classificado com confiança alta. Voltar ao automático esquece o que foi
     aprendido com aquele card."""
     from . import store
-    mem = memory()
+    # Leitura sem o "fallback" de memory(): se o banco falhar aqui, a gravação abaixo não pode
+    # sobrescrever a memória inteira com um dicionário vazio.
+    mem = store.get_setting('class_memory') or {}
     records = {r['id']: r for r in doc['records']}
     now = datetime.now().astimezone().isoformat(timespec='seconds')
     changed = 0

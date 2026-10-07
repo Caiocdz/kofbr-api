@@ -17,7 +17,7 @@ import re
 import threading
 import time
 import traceback
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4

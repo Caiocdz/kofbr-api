@@ -22,7 +22,6 @@ antes da comparação. Não há cortes arbitrários entre lotes de registros.
 import re
 import difflib
 from functools import lru_cache
-from collections import defaultdict
 
 
 # ---------------------------------------------------------------------------
